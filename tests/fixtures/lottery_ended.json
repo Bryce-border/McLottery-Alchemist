@@ -1,0 +1,22 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "请求成功",
+  "data": {
+    "status": { "code": "SUCCESS", "message": "成功" },
+    "activityCode": "dtx_old",
+    "activityStatusText": "已结束",
+    "activityName": "上一期积分抽奖",
+    "beginTime": "2024-01-01 00:00:00",
+    "endTime": "2025-01-01 23:59:59",
+    "drawPoint": "24",
+    "drawTypeText": "消耗积分抽奖",
+    "availablePoint": "320",
+    "drawDecision": {
+      "resourceEligible": true,
+      "reason": null,
+      "nextConsumption": { "type": "POINTS", "points": "24", "chances": 0, "text": "本次将消耗 24 积分" }
+    },
+    "prizes": [{ "name": "历史奖品", "imageUrl": "", "typeText": "优惠券" }]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "请求成功",
+  "data": {
+    "availablePoint": "150",
+    "accumulativePoint": "150",
+    "currency": "麦享会积分",
+    "expiredPoint": "0",
+    "frozenPoint": "0",
+    "usedPoint": "0"
+  }
+}

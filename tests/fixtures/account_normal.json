@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "请求成功",
+  "datetime": "2026-10-19 20:04:03",
+  "traceId": "fixture-sanitized",
+  "data": {
+    "availablePoint": "20.5",
+    "accountId": "TEST_ACCOUNT_ID",
+    "accumulativePoint": "34",
+    "currency": "麦享会积分",
+    "currentMouthExpirePoint": "0",
+    "expiredPoint": "13.5",
+    "frozenPoint": "0",
+    "lastMouthExpirePoint": "0",
+    "nextMouthExpirePoint": "0",
+    "usedPoint": "0"
+  }
+}

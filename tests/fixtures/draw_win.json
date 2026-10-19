@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "请求成功",
+  "data": {
+    "status": { "code": "SUCCESS", "message": "成功" },
+    "win": true,
+    "prizes": [
+      {
+        "name": "下单立减1元券",
+        "imageUrl": "https://img.mcd.cn/gallery/0c99483d7c138087.png",
+        "typeText": "优惠券",
+        "validDateInfo": "有效期以券面为准"
+      }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "cost_per_draw": "24",
+  "outcomes": [
+    { "name": "下单立减3元券", "value": "3", "probability": null },
+    { "name": "下单立减2元券", "value": "2", "probability": null },
+    { "name": "30积分", "value": null, "probability": null }
+  ]
+}

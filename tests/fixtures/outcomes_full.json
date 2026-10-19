@@ -1,0 +1,10 @@
+{
+  "cost_per_draw": "24",
+  "outcomes": [
+    { "name": "下单立减3元券", "value": "3", "probability": "0.01" },
+    { "name": "下单立减2元券", "value": "2", "probability": "0.04" },
+    { "name": "下单立减1元券", "value": "1", "probability": "0.15" },
+    { "name": "麦旋风5折券", "value": "6.5", "probability": "0.20" },
+    { "name": "未中奖", "value": "0", "probability": "0.60" }
+  ]
+}

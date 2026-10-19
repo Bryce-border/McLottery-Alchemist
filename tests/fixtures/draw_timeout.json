@@ -1,0 +1,6 @@
+{
+  "success": false,
+  "code": 504,
+  "message": "网关超时，请求状态未知",
+  "data": null
+}

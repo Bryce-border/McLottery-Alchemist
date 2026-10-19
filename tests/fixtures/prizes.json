@@ -1,0 +1,32 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "请求成功",
+  "data": {
+    "status": { "code": "SUCCESS", "message": "成功" },
+    "prizes": [
+      {
+        "id": "6a5ae2db90776025d374fbca",
+        "name": "小暑",
+        "prizeType": 25,
+        "prizeTypeText": "门票",
+        "recordTime": "2026-07-18 10:20:11",
+        "status": 0,
+        "statusText": "可用"
+      },
+      {
+        "id": "6a5ae2db90776025d374fbcb",
+        "name": "下单立减1元券",
+        "prizeType": 1,
+        "prizeTypeText": "优惠券",
+        "recordTime": "2026-07-01 09:00:00",
+        "status": 1,
+        "statusText": "已使用"
+      }
+    ],
+    "pageNum": 1,
+    "pageSize": 10,
+    "hasMore": false,
+    "truncated": false
+  }
+}

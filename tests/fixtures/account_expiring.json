@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "请求成功",
+  "data": {
+    "availablePoint": "320",
+    "accountId": "TEST_ACCOUNT_ID",
+    "accumulativePoint": "620",
+    "currency": "麦享会积分",
+    "currentMouthExpirePoint": "120",
+    "expiredPoint": "0",
+    "frozenPoint": "0",
+    "lastMouthExpirePoint": "30",
+    "nextMouthExpirePoint": "80",
+    "usedPoint": "300"
+  }
+}

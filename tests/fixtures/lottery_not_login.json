@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "code": 401,
+  "message": "未登录",
+  "data": {
+    "status": { "code": "NOT_LOGIN", "message": "请先登录麦当劳会员账号" }
+  }
+}

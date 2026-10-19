@@ -1,0 +1,22 @@
+# 运行产物
+.mclottery/
+*.pyc
+__pycache__/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+
+# 本地凭据：任何情况下都不提交
+.env
+.env.*
+*.token
+mcp-config.json
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
