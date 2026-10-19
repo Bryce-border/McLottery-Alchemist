@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import json
+import os
+from functools import wraps
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -113,6 +115,47 @@ class Attempt:
         return self.status in UNRESOLVED
 
 
+def ledger_transaction(method):
+    """Lock, reload, check and persist as one local transaction. Busy fails closed."""
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        if self.ledger_path is None:
+            return method(self, *args, **kwargs)
+        lock_path = self.ledger_path.with_suffix(self.ledger_path.suffix + ".lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+b") as handle:
+            handle.seek(0, 2)
+            if handle.tell() == 0:
+                handle.write(b"0")
+                handle.flush()
+            handle.seek(0)
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                raise GuardError("台账正被其他进程使用，本次未执行，请稍后检查状态") from exc
+            try:
+                self._intents.clear()
+                self._auths.clear()
+                self._auth_draws.clear()
+                self._revoked.clear()
+                self._attempts.clear()
+                self._attempt_order.clear()
+                self._load()
+                return method(self, *args, **kwargs)
+            finally:
+                handle.seek(0)
+                if os.name == "nt":
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    return wrapped
+
+
 class DrawGuard:
     """事件溯源式台账，append-only 写入 JSONL。"""
 
@@ -124,7 +167,7 @@ class DrawGuard:
         max_draws_per_day: int = 20,
         clock: Optional[Callable[[], datetime]] = None,
     ) -> None:
-        self.ledger_path = Path(ledger_path) if ledger_path else None
+        self.ledger_path = Path(ledger_path).expanduser().resolve() if ledger_path else None
         self.max_draws_per_authorization = max_draws_per_authorization
         self.max_draws_per_day = max_draws_per_day
         self._clock = clock or datetime.now
@@ -146,17 +189,19 @@ class DrawGuard:
                 continue
             try:
                 event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+            except json.JSONDecodeError as exc:
+                raise GuardError("台账损坏，暂停抽奖；请核实原始记录，不能跳过或清空") from exc
             self._apply(event)
 
     def _append(self, event: Dict[str, Any]) -> None:
         event.setdefault("v", LEDGER_VERSION)
-        self._apply(event)
         if self.ledger_path:
             self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
             with self.ledger_path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+        self._apply(event)
 
     def _apply(self, event: Dict[str, Any]) -> None:
         kind = event.get("type")
@@ -243,6 +288,7 @@ class DrawGuard:
             revoked=auth.auth_id in self._revoked,
         )
 
+    @ledger_transaction
     def status(self) -> Dict[str, Any]:
         unresolved = self.unresolved_attempts()
         return {
@@ -263,6 +309,7 @@ class DrawGuard:
         }
 
     # ------------------------------------------------------------------ 流程
+    @ledger_transaction
     def propose(
         self,
         *,
@@ -311,6 +358,7 @@ class DrawGuard:
         )
         return intent
 
+    @ledger_transaction
     def authorize(self, intent_id: str, *, explicit: bool = False) -> Authorization:
         """只有用户明确表达「抽」才能授权。
 
@@ -325,6 +373,8 @@ class DrawGuard:
         if intent is None:
             raise UnknownReference(f"未找到抽奖意图：{intent_id}")
 
+        if any(auth.intent_id == intent_id for auth in self._auths.values()):
+            raise AuthorizationRequired("该意图已授权，不能重复增加额度；新操作需新的明确授权")
         now = self._clock()
         auth_id = _new_id("auth")
         self._append(
@@ -343,6 +393,7 @@ class DrawGuard:
         )
         return self.get_authorization(auth_id)
 
+    @ledger_transaction
     def revoke(self, auth_id: str) -> Authorization:
         auth = self.get_authorization(auth_id)
         if auth.remaining <= 0:
@@ -350,6 +401,7 @@ class DrawGuard:
         self._append({"type": "revoke", "auth_id": auth_id, "at": self._clock().isoformat(timespec="seconds")})
         return self.get_authorization(auth_id)
 
+    @ledger_transaction
     def begin(self, auth_id: str) -> Attempt:
         """登记一次「即将调用真实抽奖」的尝试。
 
@@ -390,6 +442,7 @@ class DrawGuard:
         )
         return self._attempts[attempt_id]
 
+    @ledger_transaction
     def settle(
         self,
         attempt_id: str,
@@ -408,6 +461,9 @@ class DrawGuard:
         attempt = self._attempts.get(attempt_id)
         if attempt is None:
             raise UnknownReference(f"未找到抽奖请求：{attempt_id}")
+
+        if attempt.status != STATUS_IN_FLIGHT:
+            raise GuardError("该请求已结算；未知结果只能通过有依据的对账处理")
 
         if result is not None:
             if result.state_unknown:
@@ -436,12 +492,17 @@ class DrawGuard:
         )
         return self._attempts[attempt_id]
 
-    def reconcile(self, attempt_id: str, status: str, note: str = "") -> Attempt:
+    @ledger_transaction
+    def reconcile(self, attempt_id: str, status: str, note: str = "", *, verified: bool = False) -> Attempt:
         """人工/查询核实后解除冻结。"""
 
         attempt = self._attempts.get(attempt_id)
         if attempt is None:
             raise UnknownReference(f"未找到抽奖请求：{attempt_id}")
+        if not attempt.unresolved:
+            raise GuardError("该请求已完成结算，不能覆盖结果")
+        if not verified or not note.strip():
+            raise GuardError("需确认可关联原请求的官方结果并记录依据；无新增奖品不构成失败证据")
         if status not in SETTLED:
             raise GuardError("对账结果只能是 SUCCESS 或 FAILED")
         self._append(

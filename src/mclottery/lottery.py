@@ -196,18 +196,23 @@ def evaluate_activity(
         elif consumption.type == CONSUMPTION_NONE:
             cost = Decimal("0")
         else:
-            warnings.append("本次消耗规则未明确，请以接口文案为准")
+            blockers.append("本次消耗规则未明确，不能授权执行")
         if consumption.type == CONSUMPTION_POINTS and consumption.points is None:
-            warnings.append("接口未返回本次消耗积分数")
+            blockers.append("接口未返回本次消耗积分数")
+
+    if consumption is None:
+        blockers.append("接口未返回 nextConsumption，不能确定本次成本")
+    elif consumption.type == CONSUMPTION_CHANCES and (consumption.chances is None or consumption.chances <= 0):
+        blockers.append("本次消耗次数未明确")
+    if draws > 1 and consumption is not None and consumption.type == CONSUMPTION_CHANCES:
+        blockers.append("次数消耗可能切换为积分；请逐次刷新并核验授权，不能按首抽成本批量试算")
+    if cost is not None and (not cost.is_finite() or cost < 0):
+        blockers.append("本次消耗积分数无效")
+        cost = None
 
     if decision.fallback_consumption is not None:
         fallback_text = decision.fallback_consumption.describe()
         warnings.append("次数用完后消耗规则会切换为积分，请按提示说明")
-
-    if cost is None and activity.draw_point is not None:
-        cost = activity.draw_point
-        if not consumption_text:
-            consumption_text = f"按活动规则每次 {activity.draw_point} 积分（以接口 drawDecision 为准）"
 
     available = None
     if account is not None:

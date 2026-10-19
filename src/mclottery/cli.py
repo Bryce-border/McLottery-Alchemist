@@ -322,7 +322,7 @@ def cmd_guard(args: argparse.Namespace) -> int:
         return _emit(attempt, lines, args.json)
 
     if action == "reconcile":
-        attempt = guard.reconcile(args.attempt_id, args.status or "", note=args.note or "")
+        attempt = guard.reconcile(args.attempt_id, args.status or "", note=args.note or "", verified=args.verified)
         return _emit(
             attempt,
             ["—— 已对账 ——", f"attempt_id：{attempt.attempt_id}｜最终状态：{attempt.status}"],
@@ -420,7 +420,7 @@ def build_parser() -> argparse.ArgumentParser:
         "action",
         choices=["status", "propose", "authorize", "revoke", "begin", "settle", "reconcile"],
     )
-    g.add_argument("--ledger", default=".mclottery/ledger.jsonl")
+    g.add_argument("--ledger", default=str(Path.home() / ".mclottery" / "ledger.jsonl"))
     g.add_argument("--activity-code")
     g.add_argument("--activity-name")
     g.add_argument("--draws", type=int, default=1)
@@ -434,6 +434,7 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--win", type=lambda v: v.lower() in {"1", "true", "yes"}, default=None)
     g.add_argument("--message")
     g.add_argument("--note")
+    g.add_argument("--verified", action="store_true", help="已获得可关联原请求的官方结果；无新增奖品不算")
     g.add_argument("--result", help="draw-lottery 的原始返回 JSON")
     g.set_defaults(func=cmd_guard)
 

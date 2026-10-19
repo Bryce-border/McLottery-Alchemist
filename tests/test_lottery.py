@@ -141,5 +141,21 @@ class PreflightTest(unittest.TestCase):
         self.assertFalse(preflight.ok)
 
 
+class ConsumptionSafetyTest(unittest.TestCase):
+    def test_missing_actual_cost_cannot_fall_back_to_draw_point(self):
+        payload = load("lottery_running_ok.json")
+        payload["data"]["drawDecision"].pop("nextConsumption", None)
+        result = evaluate_activity(LotteryActivity.from_mcp(payload), now=NOW)
+        self.assertFalse(result.ok)
+        self.assertIsNone(result.cost_per_draw)
+
+    def test_chance_batch_does_not_claim_zero_total_cost(self):
+        payload = load("lottery_running_ok.json")
+        payload["data"]["drawDecision"]["nextConsumption"] = {"type": "CHANCES", "chances": 1}
+        result = evaluate_activity(LotteryActivity.from_mcp(payload), now=NOW, draws=2)
+        self.assertFalse(result.ok)
+        self.assertIn("逐次", " ".join(result.blockers))
+
+
 if __name__ == "__main__":
     unittest.main()

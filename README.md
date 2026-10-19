@@ -61,7 +61,8 @@ McLottery Alchemist 用三层结构回答这些问题：
 
 3. 保存后回到【自定义连接器】启用 `mcd-mcp`。
 4. 把 `skills/mclottery-alchemist/` 整个目录放进你的技能目录（项目级 `.workbuddy/skills/`，或用户级 `~/.workbuddy/skills/`）。
-5. 直接对话：「我积分怎么样」「积分快过期了怎么办」「现在有什么抽奖」。
+5. 如需计算和真实抽奖，在 Python 3.10+ 环境执行 `python -m pip install -e <本仓库绝对路径>`，确认 `mclottery --help` 可运行。仅复制 Skill 支持只读查询与娱乐互动，不能运行守卫。默认台账为 `~/.mclottery/ledger.jsonl`；旧版相对路径台账需先核实未结算状态并迁移，不能以新建空台账绕过冻结。
+6. 直接对话：「我积分怎么样」「积分快过期了怎么办」「现在有什么抽奖」。
 
 > Token 申请：麦当劳 MCP 站点右上角登录 → 控制台 → 激活，阅读并同意服务协议后复制。
 > **本仓库不含任何真实 Token**，`mcp-config.example.json` 只有占位符。
@@ -183,13 +184,13 @@ WorkBuddy Agent ── 加载 ──▶ skills/mclottery-alchemist/SKILL.md
 ├── src/mclottery/
 │   ├── models.py   expiry.py   value.py
 │   ├── lottery.py  guard.py    plan.py   cli.py
-└── tests/                        # 69 个单元测试 + fixtures
+└── tests/                        # 75 个单元测试 + fixtures
 ```
 
 ## 测试
 
 ```bash
-python -m unittest discover -s tests -v     # 69 tests, OK
+python -m unittest discover -s tests -v     # 75 tests, OK
 pytest -q                                   # 可选，已配置 pythonpath=src
 ```
 
@@ -215,3 +216,7 @@ pytest -q                                   # 可选，已配置 pythonpath=src
 ## License
 
 MIT
+
+## MCti 互动体验
+
+默认三轮情景题，也支持一次答完。每题覆盖不同偏好，八种人格都有明确计分依据；支持改答、跳题、打平认领和重测。结果卡引用真实答案，附专属宣言、娱乐搭配和积分建议。可继续生成分享文案或搭子互动，全程不自动查询账户或抽奖。正式 Skill 入口是 `skills/mclottery-alchemist/SKILL.md`；工作区外层的同名文件属于历史设计稿。

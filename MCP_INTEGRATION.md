@@ -41,7 +41,7 @@
   │
   └─ mall-points-products ──▶ 过滤 status=2 ∧ point>0 ∧ upTime≤now≤downTime
                                  │
-                                 └─ 输出 A 止损 / B 稳健 / C 娱乐 三类方案
+                                 └─ 优先到期与兑换建议；用户要求比较时再查活动
 ```
 
 ### 3.2 真实抽奖（带授权守卫）
@@ -78,8 +78,8 @@
 
 ## 4. 关键集成约束（实现依据）
 
-1. **`drawDecision` 是唯一准入依据。** `availableTimes = 0` 或 `drawTypeText` 都不构成判断依据。
-2. **`draw-lottery` 无入参。** 「次数」只能通过多次串行调用实现，每次调用前都要重新确认。
+1. **`drawDecision` 是资源资格判断依据，执行还需活动有效、成本明确、授权与守卫放行。** `availableTimes = 0` 或 `drawTypeText` 都不构成判断依据。
+2. **`draw-lottery` 无入参。** 「次数」只能通过多次串行调用实现，每次调用前刷新消耗并核验授权；同范围已有授权不重复询问。
 3. **无幂等键。** 超时/断连后禁止重试，必须先查 `query-my-prizes` 对账。
 4. **频控。** 短时间重复调用返回「操作太频繁」，服务端不扣积分，属于明确失败。
 5. **积分是字符串小数**（如 `"20.5"`），计算层用 `Decimal` 处理，避免浮点误差。
@@ -132,3 +132,9 @@
 - 2026-10-19：`mall-points-products` 返回 50+ 条，其中含 `point="0"` 的付费活动与 `downTime` 已过期的商品，均已纳入过滤规则与测试 fixture。
 - 2026-10-19：`query-my-prizes` 返回 1 条历史奖品（`statusText="可用"`、无 `timeRemindText`）。
 - 未执行真实抽奖（当时余额不足以参与），`draw-lottery` 的行为依据工具契约文档与模拟返回（`tests/fixtures/draw_*.json`）验证。
+
+## 守卫运行与未知状态恢复
+
+先按 README 安装完整计算包。默认台账固定为用户目录 `~/.mclottery/ledger.jsonl`，所有本机调用共享；旧台账未结算时不能换空文件继续。守卫不可用则不执行真实抽奖。单次本地台账事务加锁、刷新并持久化；重复意图不能增加授权额度，损坏记录阻断。该保护不覆盖绕过守卫的 MCP 调用或其他设备。
+
+`query-my-prizes` 仅辅助核实。无新增奖品不能证明未执行，余额变化也不能单独关联原请求。仍无法确认时保持 UNKNOWN。只有拿到可关联原请求的官方结果或人工确认，才可执行 `mclottery guard reconcile --attempt-id <id> --status FAILED --verified --note <不含敏感信息的核实依据>`。verified 是调用方声明，不是程序自动验证；不能用它替代核实。

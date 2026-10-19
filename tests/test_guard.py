@@ -119,7 +119,9 @@ class ExecutionTest(unittest.TestCase):
             with self.assertRaises(ReconcileRequired):
                 guard.begin(auth.auth_id)
 
-            guard.reconcile(attempt.attempt_id, "FAILED", note="已查询奖品记录，无新增")
+            with self.assertRaises(GuardError):
+                guard.reconcile(attempt.attempt_id, "FAILED", note="奖品记录无新增")
+            guard.reconcile(attempt.attempt_id, "FAILED", note="官方人工核实该请求未执行", verified=True)
             self.assertFalse(guard.status()["blocked"])
 
     def test_timeout_fixture_has_no_status_code(self):
@@ -181,12 +183,61 @@ class LedgerTest(unittest.TestCase):
             self.assertNotIn("Bearer", text)
             self.assertIn("dtx2", text)
 
-    def test_corrupted_line_is_skipped(self):
+    def test_corrupted_line_blocks_execution(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "ledger.jsonl"
             path.write_text("{not json}\n", encoding="utf-8")
-            guard = DrawGuard(path, clock=lambda: NOW)
-            self.assertFalse(guard.status()["blocked"])
+            with self.assertRaises(GuardError):
+                DrawGuard(path, clock=lambda: NOW)
+
+
+class HardenedGuardTest(unittest.TestCase):
+    def test_same_intent_cannot_grant_twice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            guard = make_guard(tmp)
+            intent = propose(guard)
+            guard.authorize(intent.intent_id, explicit=True)
+            with self.assertRaises(AuthorizationRequired):
+                guard.authorize(intent.intent_id, explicit=True)
+
+    def test_stale_instance_reloads_before_begin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = make_guard(tmp)
+            auth = first.authorize(propose(first, draws=2).intent_id, explicit=True)
+            stale = make_guard(tmp)
+            first.begin(auth.auth_id)
+            with self.assertRaises(ReconcileRequired):
+                stale.begin(auth.auth_id)
+
+    def test_settle_cannot_unfreeze_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            guard = make_guard(tmp)
+            auth = guard.authorize(propose(guard).intent_id, explicit=True)
+            attempt = guard.begin(auth.auth_id)
+            guard.settle(attempt.attempt_id, status="UNKNOWN")
+            with self.assertRaises(GuardError):
+                guard.settle(attempt.attempt_id, status="FAILED")
+            self.assertTrue(guard.status()["blocked"])
+
+    def test_simultaneous_workers_only_one_begins(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        with tempfile.TemporaryDirectory() as tmp:
+            guard = make_guard(tmp)
+            auth = guard.authorize(propose(guard, draws=2).intent_id, explicit=True)
+            barrier = Barrier(2)
+            def worker():
+                other = make_guard(tmp)
+                barrier.wait()
+                try:
+                    other.begin(auth.auth_id)
+                    return True
+                except GuardError:
+                    return False
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                results = list(pool.map(lambda _: worker(), range(2)))
+            self.assertEqual(sum(results), 1)
+            self.assertEqual(len(make_guard(tmp).attempts_today()), 1)
 
 
 if __name__ == "__main__":

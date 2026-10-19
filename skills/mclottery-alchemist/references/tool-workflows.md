@@ -51,7 +51,7 @@ Token 在麦当劳 MCP 站点控制台「激活」后获取。任何仓库文件
 | `drawPoint` | 单次消耗积分 | 仅作参考，实际以 `drawDecision` 为准 |
 | `drawTypeText` | 无 / 消耗积分抽奖 / 消耗任务完成次数 / 先消耗次数再消耗积分抽奖 | 仅作说明 |
 | `availableTimes` | 剩余次数 | **不能**用 0/null 推断不可抽 |
-| `drawDecision.resourceEligible` | 服务端资源判定 | **唯一准入依据** |
+| `drawDecision.resourceEligible` | 服务端资源判定 | **资源资格判断依据** |
 | `drawDecision.nextConsumption` | 本次实际消耗 `{type, points, chances, text}` | 必须展示给用户 |
 | `drawDecision.fallbackConsumption` | 次数用完后的兜底消耗 | 非空时必须说明 |
 | `prizes[]` | `{name, imageUrl, typeText}` | **没有中奖概率**，不得编造 |
@@ -88,7 +88,7 @@ Token 在麦当劳 MCP 站点控制台「激活」后获取。任何仓库文件
 
 - 入参：`pageNum`（默认 1）、`pageSize`（默认 10，最大 50），均为字符串。
 - 返回：`prizes[{id,name,prizeTypeText,recordTime,status,statusText,timeRemindText}]`、`hasMore`、`truncated`。
-- 用途：抽奖后核实、查看历史、确认「状态未知」那笔到底有没有产生奖品。
+- 用途：抽奖后核实、查看历史、辅助核实「状态未知」那笔，不能仅凭无新增奖品认定未执行。
 - 规则：接口没给核销期限就不要补；`timeRemindText` 为空即无提醒文案。
 
 ## 5. `mall-points-products`（只读）
@@ -121,7 +121,7 @@ query-my-account → 展示余额 + 本月/下月将过期 + 声明无具体到�
 
 ```text
 query-my-account ─┐
-                  ├→ 筛可兑换项 → 三类方案
+                  ├→ 筛兑换候选 → 按问题给建议
 mall-points-products ─┘
 （用户要求比较抽奖时才追加 query-lottery-info）
 ```
@@ -146,12 +146,12 @@ settle
 守卫命令：
 
 ```bash
-python run.py guard propose --activity-code dtx2 --activity-name 麦麦积分抽奖 --draws 1 --cost 24 --preflight-ok
-python run.py guard authorize --intent-id intent_xxx --explicit
-python run.py guard begin     --auth-id auth_xxx
+mclottery guard propose --activity-code dtx2 --activity-name 麦麦积分抽奖 --draws 1 --cost 24 --preflight-ok
+mclottery guard authorize --intent-id intent_xxx --explicit
+mclottery guard begin     --auth-id auth_xxx
 # ... 调用 draw-lottery 一次 ...
-python run.py guard settle    --attempt-id draw_xxx --result draw_result.json
-python run.py guard status
+mclottery guard settle    --attempt-id draw_xxx --result draw_result.json
+mclottery guard status
 ```
 
 ## 8. 错误分类
@@ -163,3 +163,9 @@ python run.py guard status
 | 业务失败 | `ACTIVITY_EXPIRED`、库存不足、操作太频繁 | 原样展示 message，不自行改写原因 |
 | 超时/断连 | 无返回或 5xx | **只读可重试一次；抽奖禁止重试**，先对账 |
 | 字段缺失 | 没有 `drawDecision`、没有 `prizes` | 如实说明缺失，不做推断 |
+
+## 守卫运行与未知状态恢复
+
+先按 README 安装完整计算包。默认台账固定为用户目录 `~/.mclottery/ledger.jsonl`，所有本机调用共享；旧台账未结算时不能换空文件继续。守卫不可用则不执行真实抽奖。单次本地台账事务加锁、刷新并持久化；重复意图不能增加授权额度，损坏记录阻断。该保护不覆盖绕过守卫的 MCP 调用或其他设备。
+
+`query-my-prizes` 仅辅助核实。无新增奖品不能证明未执行，余额变化也不能单独关联原请求。仍无法确认时保持 UNKNOWN。只有拿到可关联原请求的官方结果或人工确认，才可执行 `mclottery guard reconcile --attempt-id <id> --status FAILED --verified --note <不含敏感信息的核实依据>`。verified 是调用方声明，不是程序自动验证；不能用它替代核实。

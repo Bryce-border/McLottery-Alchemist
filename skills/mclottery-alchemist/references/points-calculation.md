@@ -6,13 +6,13 @@
 ## 1. 剩余积分
 
 ```text
-total_cost      = cost_per_draw × draw_count
+total_cost      = cost_per_draw × draw_count  （仅固定积分消耗规则）
 remaining_points = available_points − total_cost
 ```
 
 - 只有在成本、次数、可用余额三者都明确且口径一致（同一活动、同一账户）时才计算。
 - 结果是**预计值**，不代表工具执行后的真实余额；真实扣减以 `draw-lottery` 的返回为准。
-- 余额不足时差额可以算（`available − needed`），但只能用于解释，不能推导「再攒多久」。
+- 余额不足时差额可以算（`needed − available`），但只能用于解释，不能推导「再攒多久」。
 
 代码：`lottery.total_cost` / `lottery.calculate_remaining_points`
 
@@ -130,3 +130,5 @@ conclusion        = 不可抽奖（服务端已判定资源不足）
 - 禁止用「抽了几次没中，下次概率更高」这类说法（独立事件，且无概率数据）。
 - 禁止在数据缺失时给出「大概」「约等于」的数字。
 - 禁止把「预计剩余」写成「执行后余额」。
+
+次数消耗与积分兜底混合时，不按首抽成本乘次数。逐次刷新 nextConsumption 并核验授权；缺失实际消耗时不使用 drawPoint 猜测。兑换不能保证优先扣临期积分，接口未提供扣减顺序。

@@ -56,3 +56,5 @@ python run.py plan --account tests/fixtures/account_expiring.json \
   --products tests/fixtures/products_mixed.json \
   --activity tests/fixtures/lottery_running_ok.json --now "2026-10-19 12:00:00"
 ```
+
+MCti 对话体验验收见 `mcti-experience.md`，覆盖八种人格、改答、打平、跳题、分享与意图切换。代码测试通过不代表模型对话行为已通过验收。
