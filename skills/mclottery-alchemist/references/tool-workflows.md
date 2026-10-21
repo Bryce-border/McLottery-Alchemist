@@ -3,6 +3,25 @@
 > 实测时间：2026-10-19，麦当劳 MCP Server `https://mcp.mcd.cn`（streamable HTTP）。
 > 字段名来自真实返回；示例已脱敏（账户 ID 替换、金额保留）。
 
+## 工具总览（33 个）
+
+| 域 | 工具 | 副作用 |
+|---|---|---|
+| 点餐 | `query-nearby-stores` `delivery-query-stores` `delivery-query-addresses` `query-meals` `query-meal-detail` `query-meal-assistance` `calculate-price` `order-list` `query-order` `now-time-info` | 无 |
+| 点餐（写） | `delivery-create-address` `create-order` `cancel-order` | **有** |
+| 优惠 | `available-coupons` `query-my-coupons` `query-store-coupons` `campaign-calendar` | 无 |
+| 优惠（写） | `auto-bind-coupons` | **有**（领券） |
+| 主题活动 | `query-party-city` `query-party-store` `query-partystore-date` `query-partystore-session` | 无 |
+| 主题活动（写） | `party-order-create` | **有** |
+| 积分/商城 | `query-my-account` `mall-points-products` `mall-product-detail` `mall-order-list` `mall-order-detail` | 无 |
+| 积分/商城（写） | `mall-create-order` | **有**（扣积分/库存） |
+| 抽奖 | `query-lottery-info` `query-my-prizes` | 无 |
+| 抽奖（写） | `draw-lottery` | **有**（扣积分/次数，无幂等） |
+| 营养 | `list-nutrition-foods` | 无 |
+
+**通用规则**：先 `now-time-info` 或本机时间确认时间窗；写入类工具每次都要单独的明确授权；
+参数与字段以实际返回为准，本文只记录已验证的字段。
+
 ## 0. 连接方式
 
 ```json
@@ -169,3 +188,76 @@ mclottery guard status
 先按 README 安装完整计算包。默认台账固定为用户目录 `~/.mclottery/ledger.jsonl`，所有本机调用共享；旧台账未结算时不能换空文件继续。守卫不可用则不执行真实抽奖。单次本地台账事务加锁、刷新并持久化；重复意图不能增加授权额度，损坏记录阻断。该保护不覆盖绕过守卫的 MCP 调用或其他设备。
 
 `query-my-prizes` 仅辅助核实。无新增奖品不能证明未执行，余额变化也不能单独关联原请求。仍无法确认时保持 UNKNOWN。只有拿到可关联原请求的官方结果或人工确认，才可执行 `mclottery guard reconcile --attempt-id <id> --status FAILED --verified --note <不含敏感信息的核实依据>`。verified 是调用方声明，不是程序自动验证；不能用它替代核实。
+
+## 9. 点餐与外送域（**字段待联调确认**）
+
+> 说明：以下工具来自官方 MCP 工具列表，**截至 2026-10 尚未逐字段实测**。
+> 表中列的是「调用顺序 + 必带参数 + 需要核对的返回项」，不是最终字段名。
+> 首次联调后请把真实返回补进本节，并删除本提示。
+
+| 工具 | 必带参数 | 需要核对 | 失败处理 |
+|---|---|---|---|
+| `query-nearby-stores` | 地址或经纬度 | 门店名/SID/距离/营业状态 | 无结果就让用户换地址，不猜门店 |
+| `delivery-query-addresses` | 无 | 地址 ID、标签、是否默认 | 空列表 → 走新增地址 |
+| `delivery-create-address` | 收货人、电话、地址 | 返回的地址 ID | 先向用户复述再提交；不写进日志 |
+| `delivery-query-stores` | 地址 ID / 坐标 | 可配送门店、起送价、配送范围 | 超出范围如实说 |
+| `query-meals` | storeId | 分类、mealCode、名称、价格、时段 | 菜单为空 → 换店或换时段 |
+| `query-meal-detail` | mealCode | 套餐组成、可替换项、加价 | 规格不明 → 先问用户 |
+| `query-meal-assistance` | storeId | 是否支持团餐、最低份数 | 不支持就换店 |
+| `calculate-price` | storeId、取餐方式、商品列表（+券） | 小计、配送费、优惠、应付 | **下单前必调**；失败不下单 |
+| `create-order` | 门店、取餐方式、商品、联系方式 | 订单号、状态、实付、支付链接 | 超时 → 查订单列表，**禁止重试** |
+| `query-order` | 订单号 | 状态、商品、金额、配送信息 | 查不到 → 让用户去官方端核对 |
+| `order-list` | 分页 | 最近订单、时间、状态 | 用于核实「刚才那单成没成」 |
+| `cancel-order` | 订单号 | 取消结果、退款说明 | 失败原样转述，不承诺退款时效 |
+| `now-time-info` | 无 | 当前时间 | 用于活动/营业时间判断 |
+
+点餐调用链（依赖严格串行）：
+
+```text
+query-nearby-stores / delivery-query-stores
+  → query-meals
+  → query-meal-detail（按需）
+  → calculate-price
+  → create-order
+  → query-order / order-list
+  → cancel-order（按需）
+```
+
+## 10. 优惠与活动域（**部分字段待联调确认**）
+
+| 工具 | 必带参数 | 需要核对 | 规则 |
+|---|---|---|---|
+| `available-coupons` | 无 | 券名、门槛、面额、有效期 | 可领 ≠ 可用 |
+| `auto-bind-coupons` | 无 | 领取结果、失败项 | **有副作用**，先问用户 |
+| `query-my-coupons` | 分页 | 卡包券、状态、有效期 | 不校验门店，不做可用承诺 |
+| `query-store-coupons` | storeId | 门店可用券 | **判断可用性的唯一依据** |
+| `campaign-calendar` | 月份（如支持） | 进行中/往期/未来活动、时间窗 | 只推进行中与即将开始 |
+| `query-party-city` | 无 | 可参与城市 | 四级链第一步 |
+| `query-party-store` | 城市 | 可参与门店 | 第二步 |
+| `query-partystore-date` | 门店 | 可预约日期 | 第三步 |
+| `query-partystore-session` | 门店 + 日期 | 可预约场次、余位 | 第四步；空即无位 |
+| `party-order-create` | 城市/门店/日期/场次/人数 | 订单与支付信息 | **有副作用**，确认后下 |
+
+## 11. 营养域
+
+| 工具 | 必带参数 | 返回要点 | 用途 |
+|---|---|---|---|
+| `list-nutrition-foods` | 无 | 餐品名、能量、蛋白质、脂肪、碳水、钠、钙 | 热量组合、单餐评估 |
+
+- 份量口径以返回为准；缺热量字段的餐品**不参与组合**，但要向用户说明。
+- 营养建议不构成医疗、减重或疾病饮食建议。
+
+## 12. 新域联调清单
+
+首次联调时按顺序验证并补文档：
+
+- [ ] 门店接口：地址/坐标两种入参是否都支持，返回里有没有营业状态
+- [ ] 菜单接口：是否必须传 storeId，是否分时段
+- [ ] 算价接口：券参数是 couponId 还是券对象，配送费字段名
+- [ ] 下单接口：是否有幂等键/请求号，支付链接字段名与有效期
+- [ ] 订单查询：状态字段的取值枚举
+- [ ] 取消接口：已支付订单的返回文案
+- [ ] 券接口：门槛与面额字段名，是否支持叠加
+- [ ] 活动接口：月份参数格式
+- [ ] 营养接口：热量单位是 kcal 还是 kJ（**这个必须确认，差 4.18 倍**）
+

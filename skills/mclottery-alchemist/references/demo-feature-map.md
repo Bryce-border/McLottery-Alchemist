@@ -20,6 +20,11 @@
 | 卡包查询 | 我的卡包 | 显示卡券与可用性限制说明 | `query_coupons` |
 | MCti 人格 | MCti 人格 | 逐题、快速、多选、跳题、自选、改答、分享与朋友互动 | 纯前端娱乐流程，不触发 MCP |
 | 今日运势 | 今日欧气 | 随机生成纯娱乐麦签，宜/忌与单品灵感 | 纯前端娱乐流程，不触发 MCP |
+| 启动介绍 | 炼金总览 | 六项能力清单 + 最近活动播报 + 快捷入口 | 宿主收到口令后只读并行，再推 `mclottery:state` |
+| 点餐与外送 | 点餐台 | 选门店/取餐方式、菜单加购、券后实付试算、六项确认卡 | `place_order`（**只是意图**）、`query_orders`、`cancel_order` |
+| 活动与福利 | 活动日历 / 福利中心 | 只展示进行中与即将开始；券门槛与券后实付 | `query_campaigns`、`claim_coupons`、`query_store_coupons`、`query_party` |
+| 营养与热量 | 营养实验室 | 目标热量输入、1–3 件组合、营养汇总、偏差提示 | 纯前端算术；可选 `query_nutrition` |
+| 积分缺口计划 | 积分计划 | 缺口、每次约得、预计周期、预计总支出、逐周进度 | `plan_goal` |
 
 ## 页面数据契约
 
@@ -51,7 +56,12 @@
     "products": [],
     "prizes": [],
     "coupons": [],
-    "recommendations": []
+    "recommendations": [],
+    "stores": [],
+    "menu": [],
+    "nutrition": [],
+    "benefits": [],
+    "campaigns": []
   }
 }
 ```
@@ -71,7 +81,9 @@
 }
 ```
 
-常用意图：`query_account`、`query_products`、`query_lottery`、`query_prizes`、`query_coupons`、`plan_points`、`lottery_preflight`、`product_detail`、`user_message`。
+常用意图：`query_account`、`query_products`、`query_lottery`、`query_prizes`、`query_coupons`、`plan_points`、`lottery_preflight`、`product_detail`、`user_message`、`place_order`、`query_orders`、`cancel_order`、`claim_coupons`、`query_store_coupons`、`query_campaigns`、`query_party`、`query_nutrition`、`plan_goal`。
+
+> `place_order` 只是「请求 Agent 进入下单确认流程」，**不是**授权扣款；页面没有直接调用 `create-order` 的能力。
 
 宿主可用下面的事件给页面同步自然语言回复与目标页：
 
@@ -93,4 +105,7 @@
 4. `query-lottery-info` 不返回中奖概率，因此不展示概率、期望收益或“性价比”数字。
 5. 账户只有月度到期汇总，没有具体到期日。商城列表符合筛选条件只代表候选项，不保证库存、门店适用或兑换成功。
 6. 卡包接口不校验门店、渠道与订单适用性。
-7. 人格与运势完全属于娱乐互动，不查账户、不改变中奖概率、不构成真实抽奖授权。
+7. **页面不下单、不支付、不领券、不取消订单**：这些按钮只发送意图，必须回到对话完成确认与授权。
+8. 点餐台的金额是按示例菜单做的本地算术，真实金额只认 `calculate-price`。
+9. 营养实验室只做算术，不构成医疗、减重或疾病饮食建议。
+10. 人格与运势完全属于娱乐互动，不查账户、不改变中奖概率、不构成真实抽奖授权。

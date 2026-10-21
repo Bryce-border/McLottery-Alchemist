@@ -116,6 +116,39 @@ references、三篇测试用例文档、`README.md`（四要素齐全）、`MCP_
 2026-10-20 的 `07cbb1a`（MCti 体验与运行可靠性）不产生于本文档记录的会话，故不在此复述细节；
 本文档只记录本会话实际参与的轮次，避免把他人/其他会话的工作写成本次产出。
 
+## 第 9 轮：从积分管家扩展为麦门全能管家（2026-10-21 晚）
+
+**用户需求（5 点）**：
+
+1. 购买麦当劳全流程：点餐、取消、查状态、优惠券最大化、领券；
+2. 营养成分与热量管理；
+3. 积分不够换礼品时，按活动时间、到店频率、预算区间生成饮食计划；
+4. 活动推荐，把 33 个工具用齐；
+5. 启动口令触发时自我介绍 + 活动推送 + 内置可点击界面。
+
+**架构判断**：用户问「要不要拆成多个子 Skill」。结论是**不拆**。
+
+- 点餐、券、积分、抽奖共用同一账户状态、同一授权口径、同一份台账；
+- 拆成多个独立 Skill 会造成工具描述重复、路由互相抢、授权规则不一致；
+- 改用「1 个主入口 + 5 个按需加载的能力模块（references）+ 1 个计算层」，同样能节流上下文，且跨能力对话不断裂。
+
+**实现**：
+
+1. 新增 `src/mclottery/{nutrition,mealplan,coupon,order}.py`，全部纯函数、零第三方依赖；
+2. CLI 新增 `nutrition / mealplan / coupons / order / order-status` 五个子命令；
+3. 新增 `references/{ordering-workflow,coupon-strategy,nutrition-health,points-meal-plan,campaigns}.md`；
+4. 重写 `SKILL.md`：七件事、33 工具全景、能力模块加载表、启动四步、20 行意图路由；
+5. demo 从 8 面板扩到 13 面板：点餐台、活动日历、福利中心、营养实验室、积分计划，首页加能力介绍与活动播报；
+6. 测试从 75 增至 130，新增覆盖：热量组合与缺字段排除、积分缺口与零频率、券门槛/封顶/不叠加、订单金额复核与重复提交指纹。
+
+**这轮守住的边界**：
+
+- 页面不下单、不支付、不领券、不取消，只发意图；
+- `create-order` 无幂等键 → 下单结果未知先查 `order-list`，禁止重试；
+- 券可用性只认 `query-store-coupons`，卡包券不承诺门店可用；
+- 积分获取速度不可得 → 没有规则就只算缺口，不编造到账速度；
+- 营养不做医疗/减重建议，缺热量字段的餐品不参与组合。
+
 ## 关键决策
 
 | 决策 | 理由 |
@@ -136,8 +169,9 @@ references、三篇测试用例文档、`README.md`（四要素齐全）、`MCP_
 README.md  CONTEST_DECLARATION.md  MCP_INTEGRATION.md  mcp-config.example.json  workbuddy.md
 run.py  pyproject.toml  LICENSE  .gitignore
 skills/mclottery-alchemist/{SKILL.md, assets/demo.html, references/*.md, tests/*.md}
-src/mclottery/{models,expiry,value,lottery,guard,plan,cli}.py
-tests/{test_expiry,test_value,test_lottery,test_guard,test_plan,test_cli,test_prizes}.py + fixtures/
+src/mclottery/{models,expiry,value,lottery,guard,plan,nutrition,mealplan,coupon,order,cli}.py
+tests/{test_expiry,test_value,test_lottery,test_guard,test_plan,test_cli,test_prizes,
+       test_nutrition,test_mealplan,test_coupons,test_order}.py + fixtures/
 ```
 
 ## 下一步（留给后续迭代）
@@ -145,3 +179,5 @@ tests/{test_expiry,test_value,test_lottery,test_guard,test_plan,test_cli,test_pr
 - 在真实抽奖场景（余额充足时）跑一次完整链路，验证 `win`/`prizes` 字段与 `validDateInfo` 文案。
 - 若后续接口开始返回中奖概率，放开 `lottery.expected_value` 的数值路径并补测试。
 - 若接口开始返回分批到期明细，把 `expiry` 从「月度汇总」升级为按日期分类。
+- **点餐域首次联调**：按 `references/tool-workflows.md` §12 的清单逐项验证字段（尤其 `calculate-price` 的券参数与 `create-order` 的支付链接触发字段），把「待联调」标记替换为实测记录。
+- **营养域单位确认**：kcal vs kJ 必须先确认，差 4.18 倍。

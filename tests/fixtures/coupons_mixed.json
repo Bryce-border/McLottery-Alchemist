@@ -1,0 +1,49 @@
+{
+  "success": true,
+  "data": {
+    "list": [
+      {
+        "couponId": "C001",
+        "couponName": "满 30 减 5",
+        "couponTypeText": "满减券",
+        "useCondition": "满30元可用",
+        "discountAmount": "5",
+        "validUntil": "2026-11-30",
+        "statusText": "未使用"
+      },
+      {
+        "couponId": "C002",
+        "couponName": "满 50 减 10",
+        "couponTypeText": "满减券",
+        "useCondition": "满50元可用",
+        "discountAmount": "10",
+        "validUntil": "2026-11-30",
+        "statusText": "未使用"
+      },
+      {
+        "couponId": "C003",
+        "couponName": "全场 8 折（最高减 8 元）",
+        "couponTypeText": "折扣券",
+        "threshold": "20",
+        "discountRate": "0.8",
+        "maxDiscountAmount": "8",
+        "validUntil": "2026-11-15",
+        "statusText": "未使用"
+      },
+      {
+        "couponId": "C004",
+        "couponName": "外送免配送费",
+        "couponTypeText": "配送券",
+        "threshold": "0",
+        "validUntil": "2026-10-31",
+        "statusText": "未使用"
+      },
+      {
+        "couponId": "C005",
+        "couponName": "神秘惊喜券",
+        "couponTypeText": "活动券",
+        "statusText": "未使用"
+      }
+    ]
+  }
+}

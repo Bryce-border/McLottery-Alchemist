@@ -1,0 +1,70 @@
+{
+  "success": true,
+  "code": 200,
+  "data": {
+    "list": [
+      {
+        "mealCode": "M001",
+        "mealName": "巨无霸",
+        "energy": "550",
+        "protein": "25",
+        "fat": "30",
+        "carbohydrate": "40",
+        "sodium": "900",
+        "calcium": "120",
+        "serving": "1 份"
+      },
+      {
+        "mealCode": "M002",
+        "mealName": "中薯条",
+        "energy": "340",
+        "protein": "4",
+        "fat": "17",
+        "carbohydrate": "42",
+        "sodium": "210",
+        "calcium": "8",
+        "serving": "1 份"
+      },
+      {
+        "mealCode": "M003",
+        "mealName": "麦乐鸡 5 块",
+        "energy": "250",
+        "protein": "15",
+        "fat": "15",
+        "carbohydrate": "14",
+        "sodium": "500",
+        "calcium": "20",
+        "serving": "5 块"
+      },
+      {
+        "mealCode": "M004",
+        "mealName": "中杯可乐",
+        "energy": "150",
+        "protein": "0",
+        "fat": "0",
+        "carbohydrate": "38",
+        "sodium": "10",
+        "calcium": "0",
+        "serving": "1 杯"
+      },
+      {
+        "mealCode": "M005",
+        "mealName": "蔬菜沙拉",
+        "energy": "120",
+        "protein": "6",
+        "fat": "5",
+        "carbohydrate": "10",
+        "sodium": "300",
+        "serving": "1 份"
+      },
+      {
+        "mealCode": "M006",
+        "mealName": "麦旋风（缺热量字段）",
+        "protein": "7",
+        "fat": "10",
+        "carbohydrate": "48",
+        "serving": "1 杯"
+      }
+    ]
+  }
+}

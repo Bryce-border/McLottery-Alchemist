@@ -23,12 +23,24 @@ from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from .expiry import ExpiryPolicy, classify_expiring_points
+from .coupon import best_coupon, claim_advice, parse_coupons
 from .guard import (
     AuthorizationRequired,
     DrawGuard,
     DrawLimitExceeded,
     GuardError,
     ReconcileRequired,
+)
+from .mealplan import GoalRequest, build_goal_plan
+from .nutrition import assess_day, parse_nutrition_foods, plan_meal
+from .order import (
+    build_confirmation,
+    cart_fingerprint,
+    duplicate_within,
+    explain_order_status,
+    load_order_ledger,
+    parse_cart,
+    verify_price,
 )
 from .lottery import (
     Outcome,
@@ -356,6 +368,209 @@ def cmd_calc(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------- 入口
+def _dec(value: Optional[str]) -> Optional[Decimal]:
+    if value is None or str(value).strip() == "":
+        return None
+    return Decimal(str(value))
+
+
+def cmd_nutrition(args: argparse.Namespace) -> int:
+    facts = parse_nutrition_foods(_load(args.input))
+    target = Decimal(str(args.target))
+    combo, excluded = plan_meal(
+        facts,
+        target,
+        max_items=args.max_items,
+        prefer_high_protein=args.prefer_protein,
+    )
+    payload = {
+        "parsed_items": len(facts),
+        "target_kcal": target,
+        "combo": combo.as_dict() if combo else None,
+        "excluded_without_energy": [f.name for f in excluded],
+        "note": "营养数值来自 list-nutrition-foods；不构成医疗或减重建议。",
+    }
+    lines = ["—— 热量组合 ——", f"解析餐品：{len(facts)} 个｜目标：{target} kcal"]
+    if combo is None:
+        lines.append("没有可用的热量数据，无法组合；请检查接口返回是否含 energy 字段。")
+    else:
+        names = " + ".join(f.name for f in combo.items)
+        totals = combo.totals
+        lines += [
+            f"建议组合：{names}",
+            f"合计热量：{totals.energy_kcal} kcal（目标偏差 {combo.deviation_kcal}）",
+            f"蛋白质：{totals.protein_g if totals.protein_g is not None else '接口未返回'} g"
+            f"｜脂肪：{totals.fat_g if totals.fat_g is not None else '接口未返回'} g"
+            f"｜碳水：{totals.carbohydrate_g if totals.carbohydrate_g is not None else '接口未返回'} g",
+            f"钠：{totals.sodium_mg if totals.sodium_mg is not None else '接口未返回'} mg",
+        ]
+        lines.extend(f"注意：{n}" for n in combo.notes)
+    if excluded:
+        lines.append(f"未参与计算（缺热量字段）：{'、'.join(f.name for f in excluded)}")
+    return _emit(payload, lines, args.json)
+
+
+def cmd_mealplan(args: argparse.Namespace) -> int:
+    deadline = _parse_day(args.deadline)
+    today = _parse_day(args.today) or date.today()
+    request = GoalRequest(
+        target_name=args.name,
+        target_points=Decimal(str(args.target_points)),
+        current_points=Decimal(str(args.current_points)),
+        today=today,
+        weekly_visits=args.weekly_visits,
+        budget_min=Decimal(str(args.budget_min)),
+        budget_max=Decimal(str(args.budget_max)),
+        deadline=deadline,
+        points_per_visit=_dec(args.points_per_visit),
+        points_per_yuan=_dec(args.points_per_yuan),
+        draw_cost=_dec(args.draw_cost),
+        expiring_points=_dec(args.expiring),
+    )
+    plan = build_goal_plan(request)
+    payload = plan.as_dict()
+    lines = [
+        "—— 积分目标计划 ——",
+        f"目标：{plan.target_name}｜需要 {plan.target_points} 分｜当前 {plan.current_points} 分｜缺口 {plan.gap} 分",
+    ]
+    if plan.weeks_left is not None:
+        lines.append(f"距截止：{plan.weeks_left} 周（截止 {plan.deadline}）")
+    else:
+        lines.append("未提供截止日期，无法计算达成时间。")
+    if plan.earn_per_visit is None:
+        lines.append("每次消费可得积分：缺少规则，未做估算。")
+    else:
+        lines.append(f"每次消费可得积分：约 {plan.earn_per_visit} 分（按给定规则推算）")
+        lines.append(
+            f"需要消费：约 {plan.visits_needed} 次"
+            + (f"｜按每周 {args.weekly_visits} 次，约 {plan.weeks_needed} 周" if plan.weeks_needed else "")
+        )
+    if plan.feasible is not None:
+        lines.append(
+            "截止前能否达成：" + ("可以" if plan.feasible else "按当前频率与预算不够")
+            + (f"｜预计累计 {plan.projected_points} 分" if plan.projected_points is not None else "")
+            + (f"｜预计总支出 {plan.projected_spend} 元" if plan.projected_spend is not None else "")
+        )
+    if plan.weekly_plan:
+        lines.append("逐周计划：")
+        for week in plan.weekly_plan:
+            earned = f"+{week.earned_points}" if week.earned_points is not None else "积分规则缺失"
+            lines.append(
+                f"  {week.label}：{week.visits} 次｜预算 {week.budget} 元｜{earned}"
+                f"｜累计 {week.cumulative_points}{'｜已达标' if week.reached else ''}"
+            )
+    lines.extend(f"可以考虑：{a}" for a in plan.alternatives)
+    lines.extend(f"前提：{a}" for a in plan.assumptions)
+    lines.extend(f"提醒：{w}" for w in plan.warnings)
+    return _emit(payload, lines, args.json)
+
+
+def cmd_coupons(args: argparse.Namespace) -> int:
+    coupons = parse_coupons(_load(args.input))
+    cart_total = Decimal(str(args.cart_total))
+    delivery_fee = Decimal(str(args.delivery_fee or "0"))
+    decision = best_coupon(cart_total, coupons, delivery_fee=delivery_fee)
+    payload = decision.as_dict()
+    payload["claim_advice"] = list(claim_advice(coupons))
+    lines = ["—— 优惠券试算 ——", f"订单金额：{cart_total} 元｜配送费：{delivery_fee} 元｜券：{len(coupons)} 张"]
+    if decision.best is None:
+        lines.append("当前没有可确认适用的券。")
+    else:
+        best = decision.best
+        lines.append(
+            f"建议用：「{best.coupon.name}」｜实付 {best.payable} 元｜省 {best.saved} 元｜{best.reason}"
+        )
+    for quote in decision.quotes:
+        if decision.best is not None and quote is decision.best:
+            continue
+        lines.append(f"  · {quote.coupon.name}：{quote.status}｜{quote.reason}")
+    if decision.unverified:
+        lines.append(f"有 {len(decision.unverified)} 张券字段不全，需在门店券列表确认后再用。")
+    lines.extend(f"说明：{a}" for a in decision.assumptions)
+    lines.extend(f"领券：{a}" for a in payload["claim_advice"])
+    return _emit(payload, lines, args.json)
+
+
+def cmd_order(args: argparse.Namespace) -> int:
+    lines = parse_cart(_load(args.input))
+    price_check = verify_price(
+        lines,
+        _dec(args.remote_total),
+        delivery_fee=Decimal(str(args.delivery_fee or "0")),
+        discount=Decimal(str(args.discount or "0")),
+    )
+    confirmation = build_confirmation(
+        store_name=args.store_name,
+        store_id=args.store_id,
+        meal_type=args.meal_type,
+        lines=lines,
+        price_check=price_check,
+        discount=_dec(args.discount),
+        delivery_fee=_dec(args.delivery_fee),
+        coupon_name=args.coupon_name,
+    )
+    payload = confirmation.as_dict()
+    fingerprint = cart_fingerprint(args.store_id, args.meal_type, lines)
+    payload["fingerprint"] = fingerprint
+    now = _parse_now(args.now) or datetime.now()
+    if args.ledger:
+        previous = duplicate_within(load_order_ledger(args.ledger), fingerprint, now)
+        if previous is not None:
+            payload["duplicate_of"] = previous.get("created_at")
+    out = [
+        "—— 下单前确认卡 ——",
+        f"门店：{confirmation.store_name}（{confirmation.store_id or 'ID 未返回'}）",
+        f"取餐方式：{confirmation.meal_type}",
+        "商品：",
+    ]
+    for line in lines:
+        out.append(
+            f"  · {line.name} × {line.quantity}｜单价 "
+            f"{line.unit_price if line.unit_price is not None else '未返回'}"
+            f"｜小计 {line.subtotal if line.subtotal is not None else '无法计算'}"
+        )
+    out += [
+        f"小计：{confirmation.subtotal if confirmation.subtotal is not None else '无法计算'}",
+        f"优惠：{confirmation.discount if confirmation.discount is not None else '无/未返回'}"
+        f"｜配送费：{confirmation.delivery_fee if confirmation.delivery_fee is not None else '无/未返回'}",
+        f"应付：{confirmation.payable if confirmation.payable is not None else '接口未返回，禁止下单'}",
+        f"价格复核：{price_check.reason}",
+        f"购物车指纹：{fingerprint}",
+    ]
+    if payload.get("duplicate_of"):
+        out.append(f"注意：{payload['duplicate_of']} 有一笔相同购物车记录，先确认是否已下单。")
+    out.extend(f"阻断：{b}" for b in confirmation.blockers)
+    out.extend(f"提醒：{r}" for r in confirmation.reminders)
+    out.append("本卡只做本地复核；下单需用户明确确认，结果以 create-order 返回为准。")
+    return _emit(payload, out, args.json)
+
+
+def cmd_order_status(args: argparse.Namespace) -> int:
+    data = _load(args.input)
+    status = None
+    if isinstance(data, dict):
+        for key in ("statusText", "orderStatusText", "status", "orderStatus"):
+            if data.get(key):
+                status = str(data[key])
+                break
+        inner = data.get("data")
+        if status is None and isinstance(inner, dict):
+            for key in ("statusText", "orderStatusText", "status", "orderStatus"):
+                if inner.get(key):
+                    status = str(inner[key])
+                    break
+    explanation = explain_order_status(status)
+    payload = {"status_text": status, "explanation": explanation}
+    lines = [
+        "—— 订单状态解读 ——",
+        f"接口状态：{status or '未返回'}",
+        f"含义：{explanation}",
+        "取消操作前先确认订单是否已支付：已支付通常走退款，不等于原路秒退。",
+    ]
+    return _emit(payload, lines, args.json)
+
+
+# --------------------------------------------------------------------- 入口
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mclottery",
@@ -414,6 +629,51 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--available")
     p.add_argument("--draws", type=int, default=1)
     p.set_defaults(func=cmd_calc)
+
+    p = sub.add_parser("nutrition", help="按热量目标组合餐品", parents=[common])
+    p.add_argument("--input", required=True, help="list-nutrition-foods 的返回 JSON")
+    p.add_argument("--target", required=True, help="目标热量 kcal")
+    p.add_argument("--max-items", type=int, default=3)
+    p.add_argument("--prefer-protein", action="store_true")
+    p.set_defaults(func=cmd_nutrition)
+
+    p = sub.add_parser("mealplan", help="积分缺口 → 饮食计划", parents=[common])
+    p.add_argument("--name", default="目标商品")
+    p.add_argument("--target-points", required=True)
+    p.add_argument("--current-points", required=True)
+    p.add_argument("--deadline", help="YYYY-MM-DD")
+    p.add_argument("--today", help="YYYY-MM-DD，默认取本机日期")
+    p.add_argument("--weekly-visits", type=int, default=2)
+    p.add_argument("--budget-min", default="0")
+    p.add_argument("--budget-max", default="0")
+    p.add_argument("--points-per-visit", help="每单可得积分（来自官方规则）")
+    p.add_argument("--points-per-yuan", help="每元可得积分（来自官方规则）")
+    p.add_argument("--draw-cost")
+    p.add_argument("--expiring")
+    p.set_defaults(func=cmd_mealplan)
+
+    p = sub.add_parser("coupons", help="一单最省券试算", parents=[common])
+    p.add_argument("--input", required=True, help="券列表 JSON（query-my-coupons / query-store-coupons）")
+    p.add_argument("--cart-total", required=True)
+    p.add_argument("--delivery-fee", default="0")
+    p.set_defaults(func=cmd_coupons)
+
+    p = sub.add_parser("order", help="下单前价格复核与确认卡", parents=[common])
+    p.add_argument("--input", required=True, help="购物车 JSON")
+    p.add_argument("--store-name", required=True)
+    p.add_argument("--store-id")
+    p.add_argument("--meal-type", default="到店自取")
+    p.add_argument("--remote-total", help="calculate-price 返回的应付总额")
+    p.add_argument("--delivery-fee", default="0")
+    p.add_argument("--discount", default="0")
+    p.add_argument("--coupon-name")
+    p.add_argument("--ledger", help="下单台账 JSONL，用于探测重复提交")
+    p.add_argument("--now")
+    p.set_defaults(func=cmd_order)
+
+    p = sub.add_parser("order-status", help="解读订单状态", parents=[common])
+    p.add_argument("--input", required=True)
+    p.set_defaults(func=cmd_order_status)
 
     g = sub.add_parser("guard", help="抽奖守卫：授权/执行/结算/对账", parents=[common])
     g.add_argument(

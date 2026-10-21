@@ -1,0 +1,7 @@
+{
+  "items": [
+    { "mealCode": "M001", "mealName": "巨无霸", "quantity": 1, "unitPrice": "25.5" },
+    { "mealCode": "M002", "mealName": "中薯条", "quantity": 2, "unitPrice": "12" },
+    { "mealCode": "M004", "mealName": "中杯可乐", "quantity": 1, "unitPrice": "9" }
+  ]
+}
