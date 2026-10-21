@@ -149,6 +149,33 @@ references、三篇测试用例文档、`README.md`（四要素齐全）、`MCP_
 - 积分获取速度不可得 → 没有规则就只算缺口，不编造到账速度；
 - 营养不做医疗/减重建议，缺热量字段的餐品不参与组合。
 
+## 第 10 轮：补上 `mall-create-order` 真实契约（2026-10-21 晚）
+
+**输入**：用户提供 4.5.4「积分兑换商品下单」的官方入参/返回文档与真实返回示例。
+
+**文档里读出来的三个关键事实**：
+
+1. **兑换可能同时花钱。** 真实示例 `realTotalPoints="0"` + `realTotalAmount="0.01"`，
+   本质是 0.01 元现金购买，不是「0 积分白拿」。此前只强调积分，属于口径漏洞。
+2. **下单后是「待支付」。** `orderStatusTitle="待支付"`、`leftPaySecond=899`，
+   超时自动取消。此前若说「兑换成功」就是错的。
+3. **实物必须带地址。** `spuCategory="2"` 时 `addressId` 必填，不能先下单后补地址。
+
+另外两个细节：`payId` 不是支付链接（返回里没有 URL）；`orderStatusSubTitle` 示例是
+「内未支付将自动取消订单」，缺了前半句，说明接口文案可能截断，只能原样转述。
+
+**实现**：
+
+1. 新增 `src/mclottery/redemption.py`：`preflight_redemption` 拦缺 skuId / 非法品类 /
+   实物缺地址 / 积分不足 / 金额未知；`parse_redemption_result` 解析订单号、状态、
+   积分 + 现金、支付倒计时、商品与收货信息。
+2. CLI 新增 `redeem`（预检）与 `redeem-result`（返回解读）。
+3. 用真实结构落 `tests/fixtures/mall_order_created.json`，补 17 个单测，总数 147。
+4. 同步 `SKILL.md` §12、`references/tool-workflows.md` §5.1、`MCP_INTEGRATION.md` §2.4 与约束第 13 条。
+
+**修掉的隐患**：此前 README/SKILL 写「兑换返回订单详情与支付链接」，实际返回只有 `payId`；
+已改为「返回订单号与支付标识，支付在官方页面完成，不拼 URL、不代付」。
+
 ## 关键决策
 
 | 决策 | 理由 |

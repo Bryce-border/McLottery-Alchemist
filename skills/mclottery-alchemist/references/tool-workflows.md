@@ -123,6 +123,63 @@ Token 在麦当劳 MCP 站点控制台「激活」后获取。任何仓库文件
 
 筛选必须同时满足：`status == 2` 且 `point > 0` 且 `upTime <= now <= downTime`。
 
+## 5.1 `mall-create-order`（有副作用｜2026-10-21 官方文档确认）
+
+### 入参
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `skuId` | Long | **是** | 商品具体规格 ID，来自商品详情，不是 spuId |
+| `count` | Integer | 否 | 默认 1 |
+| `addressId` | String | 实物必填 | `spuCategory="2"` 时缺它无法下单 |
+| `spuCategory` | String | **是** | `"1"` 虚拟商品 / `"2"` 实物商品 |
+
+### 返回（真实结构）
+
+```json
+{"success":true,"code":200,"traceId":"<脱敏>","data":{
+  "orderId":"ECS1211037028709736448",
+  "orderStatus":1,"status":1,
+  "orderDetailVo":{
+    "orderStatusTitle":"待支付",
+    "orderStatusSubTitle":"内未支付将自动取消订单",
+    "leftPaySecond":899,
+    "realTotalPoints":"0","realTotalAmount":"0.01",
+    "goodsTotalPoints":"0","goodsTotalPrice":"0.01",
+    "payId":"11976540481989423104",
+    "createTime":"2026-05-18 17:43:14",
+    "allCount":1,"receivedCount":0,
+    "goods":[{"spuId":465,"skuId":10863,"spuName":"早餐权益卡","skuName":"30天",
+              "count":1,"price":"0.01","points":"0"}]
+  },
+  "addressVO":{"addressId":"<脱敏>","contactName":"李","phone":"199****1228",
+               "fullAddress":"江苏省南京市江宁区东吉大道1号"}
+}}
+```
+
+### 五个必须讲清楚的点
+
+1. **兑换不等于免费。** 上面是真实示例：`realTotalPoints="0"` + `realTotalAmount="0.01"`。
+   只看积分会把它说成「0 积分白拿」。必须同时报**积分 + 现金**。
+2. **下单成功 ≠ 兑换成功。** 返回的是 `orderStatusTitle="待支付"`，`leftPaySecond=899`（约 15 分钟），
+   超时自动取消。不能对用户说「已经兑好了」。
+3. **实物必须有地址。** `spuCategory="2"` 且没有 `addressId`，不要尝试下单，
+   先走 `delivery-query-addresses` 选地址或 `delivery-create-address` 新增。
+4. **`payId` 不是支付链接。** 它只是支付标识；不要在对话里拼 URL，也不要代付。
+5. **接口文案可能截断。** 示例 `orderStatusSubTitle` 是「内未支付将自动取消订单」，缺了前半句；
+   原样转述或直接引 `statusTitle`，不要自行补字。
+
+### 本地预检
+
+```bash
+python run.py redeem --sku-id 10863 --spu-name 早餐权益卡 --sku-name 30天 \
+  --category 1 --points 0 --price 0.01 --available 2350
+python run.py redeem-result --input mall_order_created.json
+```
+
+`redeem` 拦：缺 skuId、非法 spuCategory、实物缺 addressId、积分不足、所需积分与现金都未知。
+`redeem-result` 输出：订单号、状态、**积分 + 现金**、支付倒计时、商品、收货信息。
+
 ## 6. `mall-product-detail` / `query-my-coupons`（只读，按需）
 
 - 商品详情需要 `spuId`（来自商品列表），返回 SKU，用户选规格后才能下单。

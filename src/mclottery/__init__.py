@@ -12,6 +12,7 @@
 * ``mealplan``  ：积分缺口 → 饮食计划（不编造积分获取速度）
 * ``coupon``    ：一单最省券试算（不叠加、不承诺门店可用）
 * ``order``     ：下单前金额复核、确认卡与重复提交探测
+* ``redemption``：积分兑换预检与 mall-create-order 返回解析
 * ``cli``       ：命令行入口
 """
 
@@ -28,6 +29,12 @@ from .models import (
 )
 from .nutrition import NutritionFact, parse_nutrition_foods, plan_meal
 from .order import CartLine, build_confirmation, parse_cart, verify_price
+from .redemption import (
+    RedemptionRequest,
+    RedemptionResult,
+    parse_redemption_result,
+    preflight_redemption,
+)
 
 __all__ = [
     "AccountSnapshot",
@@ -41,6 +48,8 @@ __all__ = [
     "MyPrize",
     "NutritionFact",
     "Product",
+    "RedemptionRequest",
+    "RedemptionResult",
     "best_coupon",
     "build_confirmation",
     "build_goal_plan",
@@ -48,7 +57,9 @@ __all__ = [
     "parse_coupons",
     "parse_nutrition_foods",
     "parse_products",
+    "parse_redemption_result",
     "plan_meal",
+    "preflight_redemption",
     "verify_price",
 ]
 

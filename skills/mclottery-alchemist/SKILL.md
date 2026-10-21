@@ -242,7 +242,13 @@ description: 麦当劳全能管家与积分炼金术士。支持点餐全流程�
    - `status = 2` 但 `downTime` 已过的也要排除；
    - 售罄(3)、下架(4)、预热(5)、未到 `upTime` 的一律不推荐。
 4. 无商品参考价值时只做定性比较，不做「每分值多少钱」排名。
-5. 兑换（`mall-create-order`）有副作用：先确认商品、规格、所需积分、剩余积分，再执行。
+5. 兑换（`mall-create-order`）有副作用，执行前必须确认：
+   - `skuId`（来自商品详情，不是 spuId）、数量、`spuCategory`（`"1"` 虚拟 / `"2"` 实物）；
+   - 实物（`"2"`）必须已有 `addressId`，没有就先选地址或新增地址，不能「先下单后补地址」；
+   - **积分和现金都要报**：真实返回示例是 0 积分 + 0.01 元，只报积分等于撒谎；
+   - 返回是「待支付」+ `leftPaySecond`（约 15 分钟），**下单成功 ≠ 兑换成功**；
+   - `payId` 只是支付标识，不是支付链接；不拼 URL、不代付。
+   - 本地预检用 `mclottery redeem`，返回解读用 `mclottery redeem-result`。
 
 ## 13. 真实抽奖（严格按序）
 
@@ -293,6 +299,8 @@ mclottery nutrition --input nutrition.json --target 700
 mclottery mealplan  --target-points 1500 --current-points 300 --deadline 2026-12-31 \
                     --weekly-visits 2 --budget-min 25 --budget-max 40 --points-per-yuan 1
 mclottery coupons   --input coupons.json --cart-total 58.5 --delivery-fee 6
+mclottery redeem    --sku-id 10863 --category 1 --points 0 --price 0.01 --available 2350
+mclottery redeem-result --input mall_order_created.json
 mclottery order     --input cart.json --store-name "门店名" --meal-type 到店自取 \
                     --remote-total 58.5 --ledger ~/.mclottery/orders.jsonl
 mclottery order-status --input order.json

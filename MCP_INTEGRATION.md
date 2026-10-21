@@ -58,7 +58,7 @@
 | `query-my-account` | 积分账户与月度到期 | 无 | 已实测 |
 | `mall-points-products` | 商城列表 | 无 | 已实测 |
 | `mall-product-detail` | 商城商品详情 | 无 | 待联调 |
-| `mall-create-order` | 积分兑换下单 | **扣积分/库存** | 待联调 |
+| `mall-create-order` | 积分兑换下单 | **扣积分/库存** | 已确认（官方文档） |
 | `mall-order-list` | 商城订单列表 | 无 | 待联调 |
 | `mall-order-detail` | 商城订单详情 | 无 | 待联调 |
 | `query-lottery-info` | 抽奖活动与 `drawDecision` | 无 | 已实测 |
@@ -69,6 +69,25 @@
 
 > 说明：早期版本只接入了积分与抽奖域；本次扩展把点餐、优惠、活动、营养域一并纳入，
 > 因此不再存在「未申请调用权限」的工具。写入类工具一律走「确认 → 授权 → 单次执行」。
+
+### 2.4 `mall-create-order` 关键字段（官方文档确认）
+
+**入参**：`skuId`（Long，必填，来自商品详情）、`count`（默认 1）、`addressId`（`spuCategory="2"` 时必填）、
+`spuCategory`（`"1"` 虚拟 / `"2"` 实物）。
+
+**返回**：`data.orderId`、`data.orderDetailVo.orderStatusTitle`（示例「待支付」）、
+`orderStatusSubTitle`、`leftPaySecond`（示例 899）、`realTotalPoints`、`realTotalAmount`、
+`payId`、`goods[]`、`addressVO`。
+
+| 结论 | 依据 |
+|---|---|
+| 兑换不等于免费 | 真实示例 `realTotalPoints="0"` + `realTotalAmount="0.01"` |
+| 下单成功不等于兑换成功 | `orderStatusTitle="待支付"` + `leftPaySecond=899` |
+| 实物必须带地址 | `spuCategory="2"` 时 `addressId` 必填 |
+| `payId` 不是支付链接 | 返回中无 URL 字段，只有支付标识 |
+| 接口文案可能截断 | `orderStatusSubTitle` 示例缺前半句，原样转述 |
+
+本地预检与解读：`mclottery redeem ...`、`mclottery redeem-result --input ...`。
 
 ## 3. 调用流程
 
@@ -203,6 +222,7 @@ available-coupons ──▶ 询问 ──▶ auto-bind-coupons
 10. **券可用性分两层。** `query-my-coupons` 是卡包券，不校验门店；`query-store-coupons` 才是门店可用性依据，接口未明确支持叠加时只算单券。
 11. **营养接口不保证份量口径。** 热量单位需联调确认（kcal / kJ 差 4.18 倍），缺热量的餐品不参与组合。
 12. **积分获取速度不可得。** 接口不返回「消费 1 元得多少分」，积分计划不得自行估算到账速度。
+13. **兑换返回「待支付」。** `leftPaySecond` 是支付窗口，超时自动取消；`realTotalPoints` 与 `realTotalAmount` 必须同时展示；`payId` 不是支付链接。
 
 ## 5. 业务价值
 
@@ -266,6 +286,7 @@ available-coupons ──▶ 询问 ──▶ auto-bind-coupons
 - 2026-10-19：`query-my-prizes` 返回 1 条历史奖品（`statusText="可用"`、无 `timeRemindText`）。
 - 未执行真实抽奖（当时余额不足以参与），`draw-lottery` 的行为依据工具契约文档与模拟返回（`tests/fixtures/draw_*.json`）验证。
 - 2026-10-21：按官方工具清单扩展点餐、优惠、活动、营养域。新增域尚未逐字段联调，契约以工具清单与 `references/tool-workflows.md` 的「待联调」标注为准；计算层（热量组合、券试算、积分计划、订单复核）已用 55 个新增单测覆盖，不依赖网络。
+- 2026-10-21：取得 `mall-create-order` 官方文档与真实返回结构，确认三点：兑换可能同时扣积分与现金（示例 0 积分 + 0.01 元）、下单后为「待支付」且有 `leftPaySecond` 支付窗口、实物（`spuCategory="2"`）必须传 `addressId`。新增 `redemption.py` 与 `redeem` / `redeem-result` 命令，并用真实结构落 fixture、补 17 个单测。
 
 ## 守卫运行与未知状态恢复
 

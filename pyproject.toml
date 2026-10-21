@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mclottery-alchemist"
 version = "0.2.0"
-description = "麦当劳积分炼金术士：积分到期盘点、商城兑换比较、抽奖授权守卫（零第三方依赖）"
+description = "麦门全能管家：点餐算价与用券、营养热量组合、积分缺口计划、商城兑换预检、抽奖授权守卫（零第三方依赖）"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

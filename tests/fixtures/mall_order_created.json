@@ -1,0 +1,64 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "请求成功",
+  "datetime": "2026-05-18 17:43:14",
+  "traceId": "c3d0683340056b13a2eb8a3bf8aec93b",
+  "data": {
+    "orderId": "ECS1211037028709736448",
+    "orderStatus": 1,
+    "status": 1,
+    "orderDetailVo": {
+      "orderId": "ECS1211037028709736448",
+      "orderType": 12,
+      "orderStatus": 1,
+      "orderStatusTitle": "待支付",
+      "orderStatusSubTitle": "内未支付将自动取消订单",
+      "leftPaySecond": 899,
+      "shopId": 1,
+      "shopName": "麦麦商城",
+      "channel": "03",
+      "channelTag": "APP",
+      "goodsTotalPoints": "0",
+      "goodsTotalPrice": "0.01",
+      "realGoodsTotalPrice": "0.01",
+      "realGoodsTotalPoints": "0",
+      "realTotalAmount": "0.01",
+      "realTotalPoints": "0",
+      "goodsDesc": "卡券使用规则详见卡券展示页面",
+      "payId": "11976540481989423104",
+      "createTime": "2026-05-18 17:43:14",
+      "payTransactionId": "",
+      "payTime": "2026-05-18 17:43:14",
+      "totalAmount": 0,
+      "realPayAmount": 0,
+      "discountAmount": 0,
+      "totalPoints": "0",
+      "canInvoice": false,
+      "gift": 0,
+      "haveRefund": false,
+      "allCount": 1,
+      "receivedCount": 0,
+      "goods": [
+        {
+          "type": 0,
+          "spuId": 465,
+          "skuId": 10863,
+          "spuName": "早餐权益卡",
+          "skuName": "30天",
+          "count": 1,
+          "price": "0.01",
+          "points": "0",
+          "goodsLabels": []
+        }
+      ],
+      "activityGoods": []
+    },
+    "addressVO": {
+      "addressId": "1036456600188036763821193517",
+      "contactName": "李",
+      "phone": "199****1228",
+      "fullAddress": "江苏省南京市江宁区东吉大道1号 江苏软件园一期9栋101"
+    }
+  }
+}

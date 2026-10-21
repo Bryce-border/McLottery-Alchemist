@@ -42,6 +42,12 @@ from .order import (
     parse_cart,
     verify_price,
 )
+from .redemption import (
+    RedemptionRequest,
+    describe_result,
+    parse_redemption_result,
+    preflight_redemption,
+)
 from .lottery import (
     Outcome,
     calculate_remaining_points,
@@ -567,6 +573,47 @@ def cmd_order_status(args: argparse.Namespace) -> int:
         f"含义：{explanation}",
         "取消操作前先确认订单是否已支付：已支付通常走退款，不等于原路秒退。",
     ]
+def cmd_redeem(args: argparse.Namespace) -> int:
+    request = RedemptionRequest(
+        sku_id=args.sku_id,
+        spu_name=args.spu_name,
+        sku_name=args.sku_name or "",
+        spu_category=args.category,
+        points_required=_dec(args.points),
+        cash_price=_dec(args.price),
+        count=args.count,
+        address_id=args.address_id,
+        available_points=_dec(args.available),
+    )
+    check = preflight_redemption(request)
+    payload = check.as_dict()
+    totals = check.totals
+    lines = ["—— 积分兑换预检 ——"]
+    lines.append(
+        f"商品：{totals['spu_name']}{(' ' + totals['sku_name']) if totals['sku_name'] else ''}"
+        f" ×{totals['count']}｜品类：{totals['spu_category'] or '未提供'}"
+    )
+    lines.append(
+        f"预计支出：{totals['total_points'] if totals['total_points'] is not None else '未提供'} 积分"
+        f" + {totals['total_cash'] if totals['total_cash'] is not None else '未提供'} 元"
+    )
+    if totals["remaining_points"] is not None:
+        lines.append(f"兑换后预计剩余：{totals['remaining_points']} 积分（预计值）")
+    lines.append("可以进入下单确认" if check.ready else "暂不可下单")
+    lines.extend(f"阻断：{b}" for b in check.blockers)
+    lines.extend(
+        f"提醒：{w}" for w in check.warnings if not w.startswith("兑换后预计剩余")
+    )
+    lines.extend(f"说明：{n}" for n in check.notes)
+    return _emit(payload, lines, args.json)
+
+
+def cmd_redeem_result(args: argparse.Namespace) -> int:
+    result = parse_redemption_result(_load(args.input))
+    payload = result.as_dict()
+    lines = ["—— 兑换结果解读 ——", *describe_result(result)]
+    if result.missing_fields:
+        lines.append(f"接口未返回：{'、'.join(result.missing_fields)}")
     return _emit(payload, lines, args.json)
 
 
@@ -574,7 +621,7 @@ def cmd_order_status(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mclottery",
-        description="麦当劳积分炼金术士 · 确定性计算与抽奖守卫",
+        description="麦门全能管家 · 点餐/优惠/营养/积分计算与抽奖守卫",
         epilog="所有子命令均支持 --json 输出机器可读结果。",
     )
     common = argparse.ArgumentParser(add_help=False)
@@ -674,6 +721,22 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("order-status", help="解读订单状态", parents=[common])
     p.add_argument("--input", required=True)
     p.set_defaults(func=cmd_order_status)
+
+    p = sub.add_parser("redeem", help="积分兑换下单前预检", parents=[common])
+    p.add_argument("--sku-id", required=True)
+    p.add_argument("--spu-name", default="未命名商品")
+    p.add_argument("--sku-name")
+    p.add_argument("--category", required=True, choices=["1", "2"], help='1=虚拟，2=实物')
+    p.add_argument("--points", help="单件所需积分")
+    p.add_argument("--price", help="单件现金价格")
+    p.add_argument("--count", type=int, default=1)
+    p.add_argument("--address-id", help="实物商品必填")
+    p.add_argument("--available", help="当前可用积分")
+    p.set_defaults(func=cmd_redeem)
+
+    p = sub.add_parser("redeem-result", help="解析 mall-create-order 返回", parents=[common])
+    p.add_argument("--input", required=True)
+    p.set_defaults(func=cmd_redeem_result)
 
     g = sub.add_parser("guard", help="抽奖守卫：授权/执行/结算/对账", parents=[common])
     g.add_argument(
