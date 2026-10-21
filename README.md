@@ -103,6 +103,7 @@ skills/mclottery-alchemist/assets/demo.html
 | 安全小守则 | 授权、未知状态、重复扣分这些红线是怎么被拦下的 |
 
 > **数据口径**：页面里的余额（20.5）、单次消耗（24）、奖品、概率、中奖结果全部是**离线模拟值**，只用来说明流程，不是你的真实账户数据，也不会扣任何积分。
+> 两处刻意的简化：Demo 的 MCti 是**三型简化版**（精算堡堡师 / 探索新品家 / 稳稳幸福派），正式 Skill 用八型人格；Demo 的抽奖是**四关模拟**（读活动 → 核成本 → 明确授权 → 执行），真实执行还要过本地守卫与台账。
 > 真实能力请在对话里用：「我积分多少」「现在有什么抽奖」「积分快过期了怎么办」。
 
 ## 使用示例
@@ -206,7 +207,7 @@ WorkBuddy Agent ── 加载 ──▶ skills/mclottery-alchemist/SKILL.md
 ├── skills/mclottery-alchemist/
 │   ├── SKILL.md
 │   ├── assets/demo.html          # 单文件离线演示页（可直接打开体验）
-│   ├── references/{tool-workflows,points-calculation,mcti-personalities}.md
+│   ├── references/{tool-workflows,points-calculation,mcti-personalities,output-templates}.md
 │   └── tests/{intent-routing,mcti-experience,safety-cases,regression-cases}.md
 ├── src/mclottery/
 │   ├── models.py   expiry.py   value.py
