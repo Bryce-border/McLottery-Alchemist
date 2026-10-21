@@ -39,7 +39,8 @@ McLottery Alchemist 用三层结构回答这些问题：
 - **抽奖守卫**：意图 → 明确授权 → 单次执行 → 未知状态冻结 → 对账解除，台账落盘、可审计。
 - **MCti 人格 / 娱乐运势**：八种吃堡人格与今日签文，纯娱乐，且明确「不影响中奖概率」。
 - **中奖追踪**：只展示接口返回的状态与提醒文案，不补期限。
-- **离线 Demo**：单文件可视化体验页（人格测试 / 积分账本 / 抽奖模拟 / 安全守则），不联网、不扣分、不需要 Token。
+- **Agent 工作台**：口令启动「麦门欧气补给站」，八个面板承载账户、兑换、活动、奖品、卡包、人格与运势；宿主支持 UI Bridge 时渲染，不支持就降级成文字摘要。
+- **单文件 Demo**：不联网、不扣分、不需要 Token，打开就能点着体验上述全部面板。
 
 ## 安装方法
 
@@ -82,29 +83,37 @@ python run.py --help          # Python 3.10+，零第三方依赖
 pip install -e .              # 之后可直接用 mclottery 命令
 ```
 
-## 在线体验（离线 Demo）
+## 在线体验（Agent 工作台 Demo）
 
-不想先配 Token、也不想读代码？直接打开随 Skill 附带的单文件演示页：
+不想先配 Token、也不想读代码？直接打开随 Skill 附带的单文件工作台：
 
 ```text
 skills/mclottery-alchemist/assets/demo.html
 ```
 
-双击用浏览器打开即可（也可以交给 WorkBuddy 直接预览页面）。**单文件、零依赖、不联网、不调用 MCP、不需要 MCP Token。**
+双击用浏览器打开即可（也可以交给 WorkBuddy 直接预览）。**单文件、零依赖、不联网、不调用 MCP、不需要 MCP Token。**
 
-页面包含五个板块：
+在 Agent 里说出下面任一句，也可以启动同一个工作台（是否渲染成面板取决于宿主是否支持 UI Bridge）：
 
-| 板块 | 能体验什么 |
-|---|---|
-| 今日补给站 | 今日麦签、运势卡与入口导航，感受交互节奏 |
-| MCti 吃堡人格 | 完整人格测试：情景题 → 计分 → 人格卡 → 分享文案 |
-| 积分小账本 | 到期盘点、可兑换项筛选、A/B/C 方案长什么样 |
-| 抽奖模拟器 | 「说明成本 → 确认 → 单次执行 → 结果」的完整流程演示 |
-| 安全小守则 | 授权、未知状态、重复扣分这些红线是怎么被拦下的 |
+> 启动麦门炼金台 · 打开麦门欧气补给站 · 麦门积分管家，开工
 
-> **数据口径**：页面里的余额（20.5）、单次消耗（24）、奖品、概率、中奖结果全部是**离线模拟值**，只用来说明流程，不是你的真实账户数据，也不会扣任何积分。
-> 两处刻意的简化：Demo 的 MCti 是**三型简化版**（精算堡堡师 / 探索新品家 / 稳稳幸福派），正式 Skill 用八型人格；Demo 的抽奖是**四关模拟**（读活动 → 核成本 → 明确授权 → 执行），真实执行还要过本地守卫与台账。
-> 真实能力请在对话里用：「我积分多少」「现在有什么抽奖」「积分快过期了怎么办」。
+八个面板：
+
+| 面板 | 能体验什么 | 背后用的工具 |
+|---|---|---|
+| 炼金总览 | 账户摘要、到期风险、活动成本、建议与快捷入口 | 账户 + 活动 + 商城（只读） |
+| 积分体检站 | 余额与月度到期、固定成本试算、规划入口 | `query-my-account` |
+| 积分兑换研究所 | 搜索、筛选、候选与排除原因、商品详情 | `mall-points-products`、`mall-product-detail` |
+| 麦麦抽奖活动站 | 状态、成本、`drawDecision` 资格、奖池、前置核验、模拟仪式 | `query-lottery-info` + 账户 |
+| 中奖收藏柜 / 我的麦享卡包 | 奖品状态与接口提醒、卡券与可用性边界 | `query-my-prizes`、`query-my-coupons` |
+| MCti 人格实验室 | 八型人格、逐题/快测、多选、跳题、自选、改答、分享、搭子建议 | 纯本地，不查账户 |
+| 今日麦气 | 1–5 星麦签、宜/忌、签文、幸运单品灵感 | 纯本地，不做中奖预测 |
+
+> **数据口径**：页面默认是**示例数据**，只有宿主真正推送 `mclottery:state` 后才可能变成「实时数据」。页里的余额、消耗、奖品、概率都是演的，不会扣任何积分。
+> **页面没有「直接抽」按钮**：抽奖站只提供「抽奖前检查」，模拟仪式要勾选声明且不调用 `draw-lottery`。真实抽奖仍走「成本说明 → 明确授权 → 守卫 → 单次执行」。
+> **宿主不支持内嵌**时，Skill 会降级成文字摘要，不会假装已经打开面板。UI 契约见 [`agent-ui-integration.md`](./skills/mclottery-alchemist/references/agent-ui-integration.md)，页面/意图映射见 [`demo-feature-map.md`](./skills/mclottery-alchemist/references/demo-feature-map.md)。
+
+真实能力请在对话里用：「我积分多少」「现在有什么抽奖」「积分快过期了怎么办」。
 
 ## 使用示例
 
@@ -190,7 +199,10 @@ WorkBuddy Agent ── 加载 ──▶ skills/mclottery-alchemist/SKILL.md
  │                                    │
  │                                    └── guard：ledger.jsonl（授权 / 执行 / 对账）
  │
- └── 想先体验 ──▶ assets/demo.html（单文件离线演示，不联网、不扣分）
+ └── 想先体验 ──▶ assets/demo.html（八面板工作台，默认示例数据）
+        │
+        └── 宿主支持 UI 时 ──▶ mclottery:state / agent-intent 桥接
+                               （不支持则降级为文字摘要，不假装打开）
 ```
 
 ## 目录结构
@@ -207,8 +219,8 @@ WorkBuddy Agent ── 加载 ──▶ skills/mclottery-alchemist/SKILL.md
 ├── skills/mclottery-alchemist/
 │   ├── SKILL.md
 │   ├── assets/demo.html          # 单文件离线演示页（可直接打开体验）
-│   ├── references/{tool-workflows,points-calculation,mcti-personalities,output-templates}.md
-│   └── tests/{intent-routing,mcti-experience,safety-cases,regression-cases}.md
+│   ├── references/{tool-workflows,points-calculation,mcti-personalities,output-templates,agent-ui-integration,demo-feature-map}.md
+│   └── tests/{intent-routing,mcti-experience,safety-cases,regression-cases,demo-acceptance}.md
 ├── src/mclottery/
 │   ├── models.py   expiry.py   value.py
 │   ├── lottery.py  guard.py    plan.py   cli.py
