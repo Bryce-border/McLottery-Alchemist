@@ -51,32 +51,32 @@ description: 麦当劳全能管家与积分炼金术士。支持点餐全流程�
 
 ### 3.1 点餐与外送（无副作用，除标注外）
 
-| 工具 | 用途 | 关键约束 |
+| 工具 | 用途 | 真实入参与约束 |
 |---|---|---|
-| `query-nearby-stores` | 附近门店 | 需要地址/经纬度 |
-| `delivery-query-stores` | 可配送门店 | 外送专用，需收货地址 |
-| `delivery-query-addresses` | 收货地址列表 | 只读 |
-| `delivery-create-address` | **新增地址（有副作用）** | 先向用户确认地址内容 |
-| `query-meals` | 当前门店菜单 | 必须先有门店 |
-| `query-meal-detail` | 套餐组成与可替换项 | 需 mealCode |
-| `query-meal-assistance` | 企业团餐助餐服务 | 仅团餐场景 |
-| `calculate-price` | 算价（含优惠、配送费） | **下单前必须调用** |
-| `create-order` | **创建订单（有副作用）** | 无幂等键；必须过确认卡 |
-| `query-order` | 订单详情/进度 | 按订单号 |
-| `order-list` | 历史订单（非商城） | 查超时订单的第一手段 |
-| `cancel-order` | **取消订单（有副作用）** | 先查状态；已支付涉及退款 |
+| `query-nearby-stores` | 附近门店 | `searchType`(1 收藏/2 位置/3 经纬度)+`beType`(1 到店/5 得来速)；**默认 1 是收藏，不是附近** |
+| `delivery-query-stores` | 可配送门店 | `addressId` + `beType`(2 麦乐送/6 团餐) |
+| `delivery-query-addresses` | 收货地址列表 | 无入参；手机号已脱敏 |
+| `delivery-create-address` | **新增地址（有副作用）** | city/contactName/phone(11位)/address/addressDetail 必填 |
+| `query-meals` | 当前门店菜单 | `storeCode`+`beCode`+`orderType`(1/2)+`beType`；返回是 `meals{}` 字典 |
+| `query-meal-detail` | 套餐组成与可替换项 | `code`+storeCode+beCode+orderType+beType；改配要带 `modification` |
+| `query-meal-assistance` | 企业团餐助餐服务 | `storeCode`+`beCode`+`beType=6`+`orderType=2` |
+| `calculate-price` | 算价（含优惠、配送费） | **金额单位是分**；到店 `takeWayCode` 只能取返回的 `takeWayList` |
+| `create-order` | **创建订单（有副作用）** | 外送必带 `addressId`、到店必带 `takeWayCode`；返回 `payH5Url`（元） |
+| `query-order` | 订单详情/进度 | `orderId`；`orderStatus` 是中文 |
+| `order-list` | 历史订单（非商城） | **无入参**，最近 10 笔 |
+| `cancel-order` | **取消订单（有副作用）** | 必带 `cancelReasonCode`(1/2/3/4/5/-1)；返回 orderId 可能为空 |
 
 ### 3.2 优惠与福利
 
-| 工具 | 用途 | 关键约束 |
+| 工具 | 用途 | 真实入参与约束 |
 |---|---|---|
-| `query-store-coupons` | 当前门店可用券 | **判断「这单能用什么」的唯一依据** |
-| `query-my-coupons` | 我的卡包券 | 不校验门店/订单可用性 |
-| `available-coupons` | 麦麦省可领券 | 只读 |
-| `auto-bind-coupons` | **一键领券（有副作用）** | 领取无成本，但需用户同意 |
-| `campaign-calendar` | 当月活动日历 | 返回进行中/往期/未来 |
-| `query-party-city` / `query-party-store` / `query-partystore-date` / `query-partystore-session` | 主题活动城市→门店→日期→场次 | 逐级依赖，必须串行 |
-| `party-order-create` | **主题活动下单（有副作用）** | 选定城市/门店/日期/场次后才能下 |
+| `query-store-coupons` | 当前门店可用券 | storeCode+beCode+orderType+beType；**只有券名/券码/适用商品，没有门槛与面额** |
+| `query-my-coupons` | 我的卡包券 | **返回 Markdown 文本**；用券价 ≠ 折扣额 |
+| `available-coupons` | 麦麦省可领券 | **返回 Markdown**；状态：已领取/未领取/不可领取 |
+| `auto-bind-coupons` | **一键领券（有副作用）** | **返回 Markdown**；领取无成本，但需用户同意 |
+| `campaign-calendar` | 当月活动日历 | `specifiedDate` 选填（查该日附近三天）；**返回 Markdown 文案** |
+| `query-party-city` / `query-party-store` / `query-partystore-date` / `query-partystore-session` | 主题活动城市→门店→日期→场次 | 全部要 `spuId`；逐级串行 |
+| `party-order-create` | **主题活动下单（有副作用）** | 需场次 id/时间/leftNum；返回 `payH5Url` |
 
 ### 3.3 积分、抽奖与商城
 
@@ -87,11 +87,11 @@ description: 麦当劳全能管家与积分炼金术士。支持点餐全流程�
 | `mall-product-detail` | 商城商品详情 | 需 spuId |
 | `mall-create-order` | **积分兑换（有副作用）** | 扣积分/库存，先确认 |
 | `mall-order-list` / `mall-order-detail` | 商城订单 | 近一年 |
-| `query-lottery-info` | 抽奖活动 | 资格只看 `drawDecision.resourceEligible` |
-| `draw-lottery` | **抽奖（有副作用）** | 无入参、无幂等键、一次一抽 |
-| `query-my-prizes` | 中奖记录 | 用于核实，不能反证未执行 |
-| `now-time-info` | 当前时间 | 需要判断活动时间窗时调用 |
-| `list-nutrition-foods` | 餐品营养 | 用于热量组合，不构成医疗建议 |
+| `query-lottery-info` | 抽奖活动 | 资格只看 `drawDecision.resourceEligible`；无概率字段 |
+| `draw-lottery` | **抽奖（有副作用）** | 无入参、无幂等键、一次一抽、**1 秒内不可重复**；返回 `consumePoint`/`remainPoint`/`remainChance` |
+| `query-my-prizes` | 中奖记录 | `pageSize` 默认 10、**最大 20**；含 `couponInfo` 与 `sourceDesc` |
+| `now-time-info` | 当前时间 | 返回时间戳/日期/时区，用于活动时间窗判断 |
+| `list-nutrition-foods` | 餐品营养 | **返回 TOON 紧凑格式**，含 `energyKj` 与 `energyKcal`；不构成医疗建议 |
 
 ### 3.4 三条硬规则（不变）
 
@@ -178,16 +178,18 @@ description: 麦当劳全能管家与积分炼金术士。支持点餐全流程�
 ## 7. 点餐全流程（摘要，细节见 `references/ordering-workflow.md`）
 
 ```text
-① 确定场景：到店自取 / 外送
-② 定位门店：到店用 query-nearby-stores；外送用 delivery-query-stores（需地址）
-③ 读菜单：query-meals(storeId) → 需要套餐组成再 query-meal-detail(mealCode)
-④ 组购物车：用户确认商品与数量；有可替换项时问清规格
-⑤ 用券：query-store-coupons + query-my-coupons → 本地试算最省
-⑥ 算价：calculate-price（必须）→ 复核小计 + 配送费 − 优惠 = 应付
+① 确定场景：到店自取 / 得来速 / 外送 / 团餐
+② 定位门店：到店用 query-nearby-stores（searchType=2 或 3、beType=1/5）；
+   外送用 delivery-query-stores（addressId + beType=2）
+③ 读菜单：query-meals(storeCode, beCode, orderType, beType) → 读 meals{} 字典；
+   需要套餐组成或改配再 query-meal-detail(code)
+④ 组购物车：用户确认商品与数量；改配/随单购要带 modification / withOrder
+⑤ 用券：query-store-coupons 拿门店券 → 按 products[] 匹配 → 候选券带 couponId
+⑥ 算价：calculate-price（**返回单位是分**）→ 取 takeWayList 里的 takeWayCode
 ⑦ 确认卡：门店 / 取餐方式 / 商品清单 / 数量 / 优惠 / 配送费 / 实付
-⑧ 用户明确确认 → create-order（一次）
-⑨ 拿返回：订单号 + 支付链接（只展示，不代付）→ 提醒在官方页面完成支付
-⑩ 结果未知：禁止重复下单，先 order-list / query-order 查证
+⑧ 用户明确确认 → create-order（一次，金额单位是元）
+⑨ 拿返回：orderId + payH5Url（原样展示，不代付）→ 提醒在官方页面支付
+⑩ 结果未知：禁止重复下单，先 order-list（无入参，最近 10 笔）
 ```
 
 确认卡必须六项齐全：**门店、取餐方式、商品与数量、优惠、配送费、实付**。缺一项就不要问「确认吗」。
@@ -195,25 +197,33 @@ description: 麦当劳全能管家与积分炼金术士。支持点餐全流程�
 取消订单：
 
 1. 先 `query-order` 看状态；**已支付/制作中/配送中**要说明限制与退款路径。
-2. 用户确认取消 → `cancel-order` → 再查一次状态确认。
-3. 退款到账时间以官方口径为准，不承诺「秒退」。
+2. 用户确认取消 → `cancel-order(orderId, cancelReasonCode)`：
+   1 改主意了 / 2 重复下单 / 3 点错了点多了点少了 / 4 地址电话填错了 / 5 送达时间选错了 / -1 其它。
+3. 看 `cancelResult`；返回的 `orderId` 可能是空字符串，以原订单号为准。
+4. 退款到账时间以官方口径为准，不承诺「秒退」。
 
 ## 8. 优惠券（摘要，细节见 `references/coupon-strategy.md`）
 
-1. 先领后算：`available-coupons` → 用户同意 → `auto-bind-coupons`（领取无成本）。
-2. 判断这单能用什么：**只认 `query-store-coupons`**；卡包券 `query-my-coupons` 只作候选，不承诺门店可用。
-3. 一单一张：接口没明确支持叠加就不叠加；不要自己组合两张券的金额。
-4. 券面字段缺失（门槛、面额、范围）→ 标「待确认」，不猜、不当成无门槛。
-5. **不为凑门槛加购**。先报「券后实付」，再让用户决定；凑单省的钱小于加购花出去的钱时明确说出来。
-6. 领券/用券都要提一句「以门店与下单页为准」。
+**核心事实：券接口不返回门槛与面额，券后金额只能由 `calculate-price` 算出。**
+
+1. 先领后算：`available-coupons`（Markdown）→ 用户同意 → `auto-bind-coupons`（Markdown，领取无成本）。
+2. 判断这单能用什么：**只认 `query-store-coupons`**，它给的是券名、券码、有效期、适用商品。
+3. 卡包券 `query-my-coupons` 与麦麦省券都是 **Markdown 文本**；券名里的「9.9 元」是**用券价**，不是折扣额。
+4. **不要自编满减**：不能说「满 30 减 5」，接口没有这个字段。
+5. 券后实付的唯一算法：同一购物车算两次价（带 `couponId` / 不带），比较 `discount` 与 `price`。
+6. 一单一张：接口没明确支持叠加就不叠加。
+7. **不为凑门槛加购**：凑单必须用两次算价实算，净变化 ≥ 0 就明说不划算。
+8. 领券/用券都要提一句「以门店与下单页为准」。
 
 ## 9. 营养与热量（摘要，细节见 `references/nutrition-health.md`）
 
-1. `list-nutrition-foods` 取数据；份量口径以接口为准，接口没给就标「按默认份」。
-2. 用户给热量目标 → 用 `nutrition` 命令或本地组合找 1–3 件最接近的组合。
-3. 缺热量的餐品不参与计算，但**要告诉用户哪些没算进来**。
-4. 只做算术与搭配，不做诊断、不承诺减重、不给疾病饮食方案；涉及特殊人群（孕产、儿童、慢病）建议咨询专业人士。
-5. 钠、脂肪等指标只做提示，不替代营养师。
+1. `list-nutrition-foods` 返回的是 **TOON 紧凑字符串**（`[N]{列名}` + 逗号分隔行），不是 JSON 数组。
+2. **优先用 `energyKcal`**；只有 `energyKj` 时除以 4.184，并标注「由 kJ 换算」。
+3. 份量口径以接口为准；接口没给就标「按默认份」。
+4. 用户给热量目标 → 用 `nutrition` 命令或本地组合找 1–3 件最接近的组合。
+5. 缺热量的餐品不参与计算，但**要告诉用户哪些没算进来**。
+6. 只做算术与搭配，不做诊断、不承诺减重、不给疾病饮食方案；特殊人群建议咨询专业人士。
+7. 钠、脂肪等指标只做提示，不替代营养师。
 
 ## 10. 积分目标计划（摘要，细节见 `references/points-meal-plan.md`）
 
@@ -261,10 +271,13 @@ description: 麦当劳全能管家与积分炼金术士。支持点餐全流程�
 ④ 等用户明确确认（"直接帮我抽一次" 才算；"看看能不能中" 不算）
 ⑤ 计算环境与台账就绪：propose → authorize → begin；守卫不可用则暂停真实抽奖
 ⑥ 调用 draw-lottery 一次
-⑦ settle：成功/失败/未知
+⑦ settle：成功/失败/未知。成功时以返回的 `consumePoint`、`remainPoint`、`remainChance` 对账，
+   不用本地预估替代；`success:true` 但 `status.code=DRAW_FAILED` 仍算失败。
 ⑧ 未知 → 查记录辅助核实；无法关联原请求则保持冻结，禁止重试
 ⑨ 如实反馈：中奖展示奖品与接口给的期限；未中奖可安慰但不追加
 ```
+
+频控：**1 秒内不可重复调用**，重复调用返回「操作太频繁」且不扣积分。
 
 授权口径：
 
@@ -298,6 +311,8 @@ mclottery plan     --account account.json --products products.json --activity lo
 mclottery nutrition --input nutrition.json --target 700
 mclottery mealplan  --target-points 1500 --current-points 300 --deadline 2026-12-31 \
                     --weekly-visits 2 --budget-min 25 --budget-max 40 --points-per-yuan 1
+mclottery store-coupons --input store_coupons.json --products 9900008139
+mclottery coupon-text   --input coupon_text.md
 mclottery coupons   --input coupons.json --cart-total 58.5 --delivery-fee 6
 mclottery redeem    --sku-id 10863 --category 1 --points 0 --price 0.01 --available 2350
 mclottery redeem-result --input mall_order_created.json
@@ -308,6 +323,7 @@ mclottery guard status
 ```
 
 - 台账固定 `~/.mclottery/ledger.jsonl`；迁移旧台账前停止抽奖并先对账。
+- `coupons` 是满减试算，只适用于**带门槛/面额字段**的券数据；真实门店券请用 `store-coupons`，Markdown 券用 `coupon-text`。
 - **没有计算环境时**（只上传了 Skill 目录、未安装仓库）：
   - 点餐、查单、取消仍可进行，但金额只认 `calculate-price`，并说明「未做本地复核」；
   - 营养组合、券试算、积分计划可以按本文件与模块文档手工计算，但必须标注「手工计算，未经计算层校验」，且不得省略预计总支出；

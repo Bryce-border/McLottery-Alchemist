@@ -23,7 +23,16 @@ from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from .expiry import ExpiryPolicy, classify_expiring_points
-from .coupon import best_coupon, claim_advice, parse_coupons
+from .coupon import (
+    STORE_COUPON_CAVEATS,
+    TEXT_COUPON_CAVEATS,
+    best_coupon,
+    claim_advice,
+    match_store_coupons,
+    parse_coupons,
+    parse_markdown_coupons,
+    parse_store_coupons,
+)
 from .guard import (
     AuthorizationRequired,
     DrawGuard,
@@ -617,6 +626,59 @@ def cmd_redeem_result(args: argparse.Namespace) -> int:
     return _emit(payload, lines, args.json)
 
 
+def cmd_store_coupons(args: argparse.Namespace) -> int:
+    coupons = parse_store_coupons(_load(args.input))
+    codes = [c.strip() for c in (args.products or "").split(",") if c.strip()]
+    matches = match_store_coupons(coupons, codes)
+    payload = {
+        "count": len(coupons),
+        "cart_products": codes,
+        "matches": [
+            {**m.coupon.as_dict(), "applicable": m.applicable, "reason": m.reason}
+            for m in matches
+        ],
+        "caveats": list(STORE_COUPON_CAVEATS),
+    }
+    lines = [
+        "—— 门店可用券 ——",
+        f"券：{len(coupons)} 张｜购物车商品：{len(codes)} 个",
+    ]
+    for m in matches:
+        flag = "可能适用" if m.applicable else "不匹配"
+        lines.append(f"· {m.coupon.title}｜{flag}｜{m.reason}")
+        if m.coupon.trade_period:
+            lines.append(f"  有效期：{m.coupon.trade_period}")
+        if m.coupon.price_hint is not None:
+            lines.append(f"  标题价：{m.coupon.price_hint} 元（用券价，不是折扣金额）")
+    lines.extend(f"注意：{c}" for c in STORE_COUPON_CAVEATS)
+    return _emit(payload, lines, args.json)
+
+
+def cmd_coupon_text(args: argparse.Namespace) -> int:
+    text = Path(args.input).read_text(encoding="utf-8")
+    coupons = parse_markdown_coupons(text)
+    payload = {
+        "count": len(coupons),
+        "coupons": [c.as_dict() for c in coupons],
+        "claimable": [c.title for c in coupons if c.claimable],
+        "caveats": list(TEXT_COUPON_CAVEATS),
+    }
+    lines = ["—— 券文本解析 ——", f"解析到 {len(coupons)} 张券"]
+    for c in coupons:
+        bits = [c.title]
+        if c.status:
+            bits.append(c.status)
+        if c.price_text:
+            bits.append(c.price_text)
+        if c.valid_period:
+            bits.append(c.valid_period)
+        if c.tags:
+            bits.append("/".join(c.tags))
+        lines.append("· " + "｜".join(bits))
+    lines.extend(f"注意：{c}" for c in TEXT_COUPON_CAVEATS)
+    return _emit(payload, lines, args.json)
+
+
 # --------------------------------------------------------------------- 入口
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -704,6 +766,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--cart-total", required=True)
     p.add_argument("--delivery-fee", default="0")
     p.set_defaults(func=cmd_coupons)
+
+    p = sub.add_parser("store-coupons", help="门店券适用性匹配（不算金额）", parents=[common])
+    p.add_argument("--input", required=True, help="query-store-coupons 返回 JSON")
+    p.add_argument("--products", help="购物车商品 code，逗号分隔")
+    p.set_defaults(func=cmd_store_coupons)
+
+    p = sub.add_parser("coupon-text", help="解析麦麦省/卡包 Markdown 文本", parents=[common])
+    p.add_argument("--input", required=True, help="保存为 txt/md 的券列表文本")
+    p.set_defaults(func=cmd_coupon_text)
 
     p = sub.add_parser("order", help="下单前价格复核与确认卡", parents=[common])
     p.add_argument("--input", required=True, help="购物车 JSON")

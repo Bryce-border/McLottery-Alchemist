@@ -5,15 +5,30 @@
 
 ## 1. 活动日历
 
-`campaign-calendar` 返回麦当劳中国**当月**活动，分为：进行中 / 往期 / 未来。
+`campaign-calendar` 入参：`specifiedDate`（yyyy-MM-dd，选填）。
+
+- 不传：查询**当月**活动。
+- 传了：查询该日期**附近共三天**的活动。
+
+返回是**带 emoji 与 `<img>` 的 Markdown 营销文案**，按「往期回顾 / 今日」分组，不是 JSON：
+
+```text
+### 当前时间：2025-12-09 14:48:42
+### 活动列表：
+#### 12月8日 往期回顾
+- **活动标题**：...
+  **活动内容介绍**：...
+#### 12月9日 今日
+- **活动标题**：...
+```
 
 使用规则：
 
-1. 只把「进行中」作为可执行推荐；「未来」只能说「即将开始」，并给开始时间。
-2. 「往期」不推荐，除非用户主动问「上次那个活动」。
-3. 每个活动至少给四项：**名称、时间窗、参与方式、成本**（积分/消费/免费）。
-4. 接口没给的信息（库存、名额、是否限门店）不要补。
-5. 活动时间以接口为准；跨月活动要说明「当前只看到本月日历」。
+1. 只把「今日 / 进行中」作为可执行推荐；「往期回顾」不推荐，除非用户主动问。
+2. 每个活动至少给：**名称、时间、参与方式、成本**——文案里没写的不要补。
+3. 文案可能含表情与营销话术，转述时可以精简，但不能改变时间、价格、门槛。
+4. 接口只覆盖当月（或指定日附近三天），跨月活动要说明「当前只看到这段时间」。
+5. 图片链接可以原样给，不下载、不转存。
 
 推荐格式：
 
@@ -27,22 +42,27 @@
 
 ## 2. 主题活动（生日派对等）
 
-四级串行，不可跳级：
+四级串行，不可跳级。`spuId` 从商城商品详情拿，全程复用：
 
 ```text
-query-party-city()                      → 可选城市
-query-party-store(city)                 → 该城市可参与门店
-query-partystore-date(store)            → 可预约日期
-query-partystore-session(store, date)   → 可预约场次
-party-order-create(...)                 → 下单（有副作用）
+query-party-city(spuId)                              → 城市（code / name）
+query-party-store(spuId, code, lat?, lng?)           → 门店（storeCode / name / distance）
+query-partystore-date(spuId, storeCode)              → 可预约日期（date）
+query-partystore-session(spuId, storeCode, dateStr)  → 场次（id / timeStart / timeEnd /
+                                                        partyMin / partyMax / price / leftNum）
+party-order-create(spuId, skuId, storeCode, dateStr, code, partyType,
+                   id, timeStart, timeEnd, leftNum, count)  → 下单
 ```
 
 规则：
 
 - 每一级都让用户选，不替用户决定城市/门店/日期。
-- 场次可能已满：接口返回为空就直说「暂无可约场次」，不推荐「应该还有」。
-- 下单前确认：城市、门店、日期、场次、人数（如接口需要）、金额。
-- 主题活动往往需要付费，**不要和积分兑换混为一谈**。
+- `leftNum` 是剩余名额；为 0 或场次列表为空 → 直说「暂无可约场次」。
+- 下单必须把场次 `id`、`timeStart/timeEnd`、`leftNum` 一起带上，缺一项都可能失败。
+- `count` 必须在 `partyMin`–`partyMax` 之间，超出要提示。
+- `session.price` 文档示例是 `1000`（疑似分），`party-order-create.amount` 示例是 `"250"`（元），
+  **两者单位需联调确认**；不确定时按下单页金额为准，不自行换算后报价。
+- 下单返回 `payH5Url`，原样给用户去支付。
 
 ## 3. 福利与领券
 

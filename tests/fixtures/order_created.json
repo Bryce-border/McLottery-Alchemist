@@ -1,0 +1,48 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "请求成功",
+  "datetime": "2026-02-09 14:42:51",
+  "data": {
+    "orderId": "1030938730000733964700499858",
+    "payId": "11940981078137585664",
+    "payH5Url": "https://m-sit.mcdchina.net/mcp/scanToPay?orderId=1030938730000733964700499858",
+    "orderDetail": {
+      "orderStatus": "待支付",
+      "storeName": "示例门店",
+      "storeAddress": "示例地址",
+      "orderProductList": [
+        {
+          "productName": "DC套餐测试",
+          "quantity": 1,
+          "price": "16",
+          "comboItemList": [
+            { "itemName": "汉堡包-pool1 加一份奶油(加)", "itemQuantity": 1 }
+          ]
+        }
+      ],
+      "totalAmount": "21",
+      "realTotalAmount": "21",
+      "totalDiscountAmount": "1",
+      "couponList": [],
+      "deliveryInfo": {
+        "deliveryType": "立即送出",
+        "deliveryAddress": "示例小区-2栋",
+        "addressDetail": "508",
+        "customerNickname": "张三",
+        "mobilePhone": "152****6666",
+        "expectDeliveryTime": ""
+      },
+      "createTime": "2026-02-09 14:42:51",
+      "deliveryPrice": "6",
+      "realDeliveryPrice": "6",
+      "productPrice": "15",
+      "takeWay": "locker-in",
+      "pickupCode": "",
+      "lockerCode": "",
+      "mealAssistance": { "code": "", "name": "", "items": [] },
+      "lockerQrCode": "https://example.com/qr.png",
+      "remark": ""
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "请求成功",
+  "datetime": "2026-01-23 09:32:44",
+  "data": "[2]{productName,nutritionDescription,energyKj,energyKcal,protein,fat,carbohydrate,sodium,calcium}:\n  猪柳麦满分,null,1288,308,16,16,24,781,213\n  巨无霸,null,2300,550,25,30,40,900,120\n  "
+}

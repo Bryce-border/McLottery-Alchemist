@@ -1,7 +1,6 @@
-# 点餐全流程
+# 点餐全流程（真实契约）
 
-> 适用：到店自取、外送、企业团餐、主题活动。
-> 字段名以 `mcd-mcp` 实际返回为准；本文只固定**顺序与安全边界**，不杜撰字段。
+> 依据 2026-10-21 官方工具文档。字段名以实际返回为准，本文固定**顺序、单位与安全边界**。
 
 ## 0. 一句话原则
 
@@ -9,166 +8,190 @@
 
 ## 1. 场景分流
 
-| 场景 | 首步工具 | 说明 |
+| 场景 | 第一步 | 关键参数 |
 |---|---|---|
-| 到店自取 | `query-nearby-stores` | 需要地址或经纬度；让用户选门店，不替用户就近决定 |
-| 外送 | `delivery-query-addresses` → `delivery-query-stores` | 地址优先复用；没有地址才 `delivery-create-address` |
-| 企业团餐 | `query-meal-assistance` | 先确认门店是否支持助餐服务，再走点餐 |
-| 主题活动 | `query-party-city` → `query-party-store` → `query-partystore-date` → `query-partystore-session` | 四级串行，不可跳级 |
+| 到店自取 | `query-nearby-stores` | `searchType=2/3`（**默认 1 是收藏餐厅，不是附近**）、`beType=1` |
+| 得来速 | `query-nearby-stores` | `beType=5` |
+| 外送 | `delivery-query-addresses` → `delivery-query-stores` | `addressId` + `beType=2` |
+| 企业团餐 | `delivery-query-stores` → `query-meal-assistance` | `beType=6`、`orderType=2` |
+| 主题活动 | `query-party-city` → store → date → session | `spuId` 贯穿全程 |
 
-## 2. 到店自取
+门店标识统一用 **`storeCode` + `beCode`**，不存在 `storeId`。
 
-```text
-query-nearby-stores(地址/坐标)
-  → 用户选定 storeId
-  → query-meals(storeId)
-  → 需要套餐组成时 query-meal-detail(mealCode)
-  → 组购物车
-  → query-store-coupons(storeId) + query-my-coupons()
-  → calculate-price(门店 + 到店自取 + 商品列表 + 券)
-  → 确认卡 → 用户明确确认 → create-order
-```
+## 2. 门店
 
-注意：
-
-- 门店营业状态、距离、取餐方式以接口返回为准；不要用「应该还开着」补位。
-- 菜单可能分时段（早餐/正餐）；`query-meals` 返回的分类要如实展示，不混时段推荐。
-- 套餐的可替换项必须问清（加价换大薯、换饮料），否则算价会对不上。
-
-## 3. 外送
+到店（`query-nearby-stores`）：
 
 ```text
-delivery-query-addresses
-  ├─ 有地址 → 用户选定地址
-  └─ 无地址 → 确认地址内容 → delivery-create-address（有副作用）
-delivery-query-stores(地址)
-  → query-meals(storeId)
-  → 组购物车
-  → 券（含免配送券）
-  → calculate-price（含配送费）
-  → 确认卡（必须含配送费与预计送达）
-  → create-order
+searchType=2 → city + keyword（按位置）
+searchType=3 → longitude + latitude（按经纬度）
+searchType=1 → 收藏餐厅（只有用户明确说「我收藏的店」才用）
+beType=1 到店自取 / 5 得来速
 ```
 
-外送额外规则：
+外送（`delivery-query-stores`）：`addressId` + `beType=2`（麦乐送）或 `6`（团餐）。
 
-- 配送费、起送价、配送范围都以 `calculate-price` / 门店返回为准。
-- 地址属于个人信息：只在本次配送上下文使用，不写进日志、不重复回显完整门牌号。
-- 预计送达时间是接口给的区间，不承诺「30 分钟必达」。
+返回要点：`storeCode`、`beCode`、`storeName`、`address`、`distance`、`businessStatus`、
+`businessStartTime/EndTime`、`reservationTimeOptions[]`。
 
-## 4. 算价与复核
+- `businessStatus=false` 不要推荐，不猜「应该还开着」。
+- 预约场景要带 `reservationDate`（yyyy-MM-dd HH:mm）。
 
-`calculate-price` 是**唯一可信的金额来源**。本地复核只用来发现差异：
+## 3. 菜单
 
 ```text
-本地小计 = Σ(单价 × 数量)
-理论应付 = 本地小计 + 配送费 − 优惠
-差异 = 接口应付 − 理论应付
-|差异| > 0.01 元 → 先查清，不入下单
+query-meals(storeCode, beCode, orderType, beType, reservationDate?)
 ```
 
-常见差异原因（要主动排查，而不是直接报「以接口为准」）：
+`orderType`：1 到店 / 2 外送。返回是**索引 + 字典**：
 
-1. 套餐可替换项加价；
-2. 券门槛未达或券不适用于该门店；
-3. 外送费/包装费；
-4. 商品调价或售罄替换。
+```text
+frequent[]         → 常点餐品 code
+categories[]       → {name, meals:[{code,tags}], daypart}
+meals{code: {...}} → {name, currentPrice, originalPrice, discountType,
+                       isCanWithOrder, withOrder}
+```
 
-命令行复核：
+- 价格是**元**（`"55.5"`）。
+- `discountType` 非空说明已有优惠；`isCanWithOrder=true` 时 `withOrder` 要原样带入算价和下单。
+- 不要把 `categories` 当餐品数组，真正的详情在 `meals` 字典。
+
+详情（`query-meal-detail`）：`code`、`storeCode`、`beCode`、`orderType`、`beType`。
+返回 `rounds[]`（套餐组成）、`modification.items[].values[]`（加料/去料与数量）、`supportModify`。
+
+- 用户改了套餐内商品或特调，必须把 `modification` 与 `roundList` 带进算价，否则金额对不上。
+
+## 4. 算价（单位：分）
+
+```text
+calculate-price(storeCode, beCode, orderType, beType, items[],
+                couponId?, couponCode?, withOrder?, needTableware?)
+```
+
+`items[]`：`productCode`、`quantity`、`couponId`、`couponCode`、`modification`、`roundList`。
+
+返回（**全部是分**）：
+
+| 字段 | 含义 | 示例 |
+|---|---|---|
+| `productOriginalPrice` | 商品原价 | 1600 = 16 元 |
+| `productPrice` | 商品现价 | 1600 |
+| `deliveryOriginalPrice` / `deliveryPrice` | 配送费 | 600 = 6 元 |
+| `originalPrice` | 优惠前总额 | 2200 |
+| `discount` | 优惠金额 | 0 |
+| `price` | **应付** | 2200 |
+| `tablewarePrice` | 餐具费 | 10 = 0.10 元 |
+| `takeWayList` | 到店取餐方式选项 | 下单的 `takeWayCode` 只能来自这里 |
+
+本地复核：
+
+```text
+本地小计（元） + 配送费 − 优惠 = 接口 price ÷ 100
+|差异| > 0.01 元 → 阻断，先查规格、券、随单购
+```
+
+命令行：
 
 ```bash
 python run.py order --input cart.json --store-name "门店名" --meal-type 到店自取 \
-  --remote-total 58.5 --delivery-fee 0 --discount 10 --ledger ~/.mclottery/orders.jsonl
+  --remote-total 22 --delivery-fee 6 --discount 0
 ```
 
-## 5. 下单前确认卡（必须六项齐全）
+> 若直接把算价返回的 `price`（分）喂给 `--remote-total`，要加 `--unit fen`。
+
+## 5. 下单（单位：元）
+
+```text
+create-order(storeCode, beCode, beType, addressId? 或 takeWayCode?,
+             reservationDate?, gmServiceCode?, withOrder?, needTableware?,
+             remark?, items[])
+```
+
+- 外送：`addressId` 必填；`remark` 可引导用户填（≤50 字，如「无接触配送」）。
+- 到店：`takeWayCode` 必填，**只能来自算价的 `takeWayList`**。
+- 团餐：`gmServiceCode` 必填。
+
+返回里三个必须用的字段：
+
+| 字段 | 用途 |
+|---|---|
+| `orderId` | 查单、取消的唯一标识 |
+| `payH5Url` | 支付链接，**原样给用户**，不代付、不改写 |
+| `orderDetail.orderStatus` | 示例「待支付」；`pickupCode` / `lockerCode` / `lockerQrCode` 可能为空 |
+
+**金额单位是元**（`totalAmount:"22"` = 22 元），不是分。`realTotalAmount` 才是实付。
+
+## 6. 确认卡（六项齐全）
 
 ```text
 【下单确认】
-门店：<门店名>（<storeId>）
-取餐方式：到店自取 / 外送
+门店：<storeName>（<storeCode>）
+取餐方式：到店自取 / 外送 / 得来速
 商品：巨无霸 ×1 25.5 元｜中薯条 ×2 12 元 / 份
 优惠：满 50 减 10（-10 元）
 配送费：0 元
-实付：48.5 元
+实付：48.5 元（calculate-price 的 price ÷ 100）
 ```
 
-- 六项缺一项 → 不要问「确认吗」，先补齐。
-- 金额必须是 `calculate-price` 返回的应付，不是本地算出来的。
-- 加一句：「确认后我会创建订单，支付在官方页面完成。」
+缺一项 → 不要问「确认吗」。金额只认 `calculate-price`，本地只做复核。
 
-## 6. 执行下单
+## 7. 执行与结果未知
 
-- `create-order` 属于有副作用操作：**一次确认只下一次单**。
-- 返回后展示：订单号、订单状态、实付金额、支付链接（原样展示）。
-- **不代付**：不打开、不代填、不索取支付凭证或验证码。
-- 提醒：支付超时订单可能自动取消，具体以订单页为准。
+- `create-order` 有副作用：**一次确认只下一次单**。
+- 返回后展示：订单号、状态、实付、`payH5Url`、取餐码（有就给，空就如实说还没出码）。
+- 不代付、不索取验证码、不构造支付链接。
 
-### 结果未知怎么办（重点）
-
-下单超时或断连时：
+结果未知：
 
 ```text
 禁止：直接重试 create-order
-正确：order-list / query-order 查最近订单
-  ├─ 查到刚创建的订单 → 告知订单号，让用户去支付
-  ├─ 明确没有新订单     → 才可以重新发起（仍需用户确认）
-  └─ 查不到/接口失败     → 标记「下单结果未知」，让用户到官方 App/小程序核对
+正确：order-list（无入参，最近 10 笔）→ 找到刚创建的订单 → 给订单号
+      找不到 → 才可重新发起（仍需用户确认）
+      查询也失败 → 标记「下单结果未知」，让用户去官方 App 核对
 ```
 
-不能用「余额没变」「没收到短信」推断下单失败。
+## 8. 查单与取消
 
-## 7. 查订单
+- `query-order(orderId)`：返回 `orderStatus` 中文状态、商品、金额、配送信息。
+- `order-list()`：**无入参**，最多最近 10 笔。
 
-- 单个订单：`query-order(orderId)` → 状态、商品、金额、配送信息。
-- 历史订单：`order-list` → 用于找刚下的单、核对重复下单。
-- 状态解读（`order-status` 命令）：
-
-| 状态 | 含义 | 可否取消 |
-|---|---|---|
-| 待支付 | 未支付 | 可取消，或直接去支付 |
-| 已支付 | 已付款 | 取消通常走退款，以订单页为准 |
-| 制作中 | 门店制作 | 可能被拒绝，需联系门店 |
-| 配送中 | 骑手配送 | 一般不可取消 |
-| 已完成 | 已完结 | 不可取消 |
-| 已取消 | 已取消 | 无需操作 |
-
-状态字段缺失 → 「接口未返回订单状态，不能假设成功或取消」。
-
-## 8. 取消订单
+取消：
 
 ```text
-① query-order 查当前状态
-② 判断能否取消；已支付/制作中/配送中要说明限制与退款路径
-③ 用户明确说「取消」→ cancel-order
-④ 再查一次状态确认
-⑤ 反馈：已取消 / 取消失败原因 / 需联系门店
+① query-order 看状态（已支付/制作中/配送中要说明限制与退款）
+② 用户明确「取消」
+③ cancel-order(orderId, cancelReasonCode)
+   reasonCode：1 改主意了 / 2 重复下单 / 3 点错了点多了点少了 /
+               4 地址电话填错了 / 5 送达时间选错了 / -1 其它
+④ 看 cancelResult；true 才算成功
 ```
 
-红线：
+坑：
 
-- 不能因为用户说「不想要了」就直接取消已支付订单而不说明退款。
+- 返回示例里 `orderId` 是**空字符串**，不能拿返回的 orderId 判断对象，要用原订单号。
 - 不承诺退款到账时间。
-- 取消失败时原样转述接口原因，不自行改写成「系统问题」。
+- 取消失败时原样转述原因，不改写成「系统问题」。
 
-## 9. 异常与失败分类
+## 9. 异常分类
 
 | 类型 | 表现 | 处理 |
 |---|---|---|
-| 门店不可用 | 门店关闭、超出配送范围 | 换店或换外送，不硬下 |
-| 商品售罄 | 加购失败或算价不含该品 | 让用户换品，不替换成相似商品 |
-| 券不可用 | 券门槛/范围不符 | 退回券试算，不静默去掉券 |
-| 价格不一致 | 差异 > 0.01 | 阻断，先查原因 |
-| 下单超时 | 无返回 | 禁止重试，先查订单列表 |
-| 支付失败 | 支付页报错 | 展示官方提示，不代付 |
+| 门店不可用 | `businessStatus=false`、超出配送范围 | 换店或改外送 |
+| 商品售罄 | 加购或算价不含该品 | 让用户换品，不用相似商品替代 |
+| 券不可用 | 门店券列表没有 / 算价未抵扣 | 去掉券重算，不静默改价 |
+| 价格不一致 | 本地与接口差 > 0.01 元 | 阻断，查规格/随单购/券 |
+| 下单超时 | 无返回 | 禁止重试，先 order-list |
+| 取餐码为空 | `pickupCode=""` | 如实说「还没出码」，不编 |
 
-## 10. 交付前自检（点餐）
+## 10. 自检
 
-- [ ] 门店是不是用户选的？
-- [ ] 菜单是不是当前门店、当前时段？
-- [ ] 套餐规格问清了吗？
-- [ ] 券查的是门店维度吗？有没有承诺叠加？
-- [ ] `calculate-price` 调了吗？金额复核过吗？
+- [ ] 门店是用户选的？用的是 `storeCode` 不是 `storeId`？
+- [ ] 到店搜索用了 `searchType=2/3`（不是默认的收藏）？
+- [ ] 菜单读的是 `meals` 字典，不是 `categories` 数组？
+- [ ] 改配/特调带进算价了吗？
+- [ ] 算价的「分」换算成「元」了吗？
+- [ ] `takeWayCode` 来自 `takeWayList` 吗？
 - [ ] 确认卡六项齐吗？
-- [ ] 用户说的是「下单」还是「先看看」？
-- [ ] 结果未知时，是先查证而不是重试吗？
+- [ ] 下单后给了 `payH5Url`，但没代付吗？
+- [ ] 取消带了合法 `cancelReasonCode` 吗？
+- [ ] 结果未知时是先查 `order-list` 而不是重试吗？

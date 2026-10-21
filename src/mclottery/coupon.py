@@ -266,3 +266,267 @@ def claim_advice(coupons: Sequence[Coupon]) -> Tuple[str, ...]:
     if unknown:
         advice.append(f"{len(unknown)} 张券缺少门槛字段，使用时需在门店券列表确认。")
     return tuple(advice)
+
+
+# ---------------------------------------------------------------- 真实门店券
+# 官方文档 4.2.7：query-store-coupons 只返回 title / couponId / couponCode /
+# tradeDateTime / products[]，**没有门槛、面额、折扣率**。因此不能用满减模型算金额。
+
+
+@dataclass(frozen=True)
+class StoreCoupon:
+    title: str
+    coupon_id: Optional[str] = None
+    coupon_code: Optional[str] = None
+    trade_period: Optional[str] = None
+    product_codes: Tuple[str, ...] = ()
+    product_names: Tuple[str, ...] = ()
+    price_hint: Optional[Decimal] = None
+
+    @property
+    def product_scope(self) -> str:
+        if not self.product_codes and not self.product_names:
+            return "未限定商品（以门店与下单页为准）"
+        return "、".join(self.product_names or self.product_codes)
+
+    @property
+    def start_time(self) -> Optional[str]:
+        match = _PERIOD_RE.search(self.trade_period or "")
+        return match.group(1) if match else None
+
+    @property
+    def end_time(self) -> Optional[str]:
+        match = _PERIOD_RE.search(self.trade_period or "")
+        return match.group(2) if match else None
+
+    def as_dict(self) -> dict:
+        return {
+            "title": self.title,
+            "coupon_id": self.coupon_id,
+            "coupon_code": self.coupon_code,
+            "trade_period": self.trade_period,
+            "product_scope": self.product_scope,
+            "price_hint": self.price_hint,
+        }
+
+
+def parse_store_coupons(payload: Any) -> Tuple[StoreCoupon, ...]:
+    # 注意：data 本身是数组，models.unwrap 只处理 Mapping 包装，这里单独取。
+    data: Any = payload
+    if isinstance(data, Mapping):
+        inner = data.get("data")
+        if isinstance(inner, list):
+            data = inner
+        else:
+            for key in ("list", "items", "coupons", "records", "couponList"):
+                value = data.get(key)
+                if isinstance(value, list):
+                    data = value
+                    break
+    if not isinstance(data, list):
+        return ()
+
+    coupons = []
+    for raw in data:
+        if not isinstance(raw, Mapping):
+            continue
+        title = str(raw.get("title") or raw.get("couponName") or "未命名优惠券").strip()
+        products = raw.get("products")
+        products = products if isinstance(products, list) else []
+        codes = tuple(
+            str(p.get("productCode")).strip()
+            for p in products
+            if isinstance(p, Mapping) and p.get("productCode")
+        )
+        names = tuple(
+            str(p.get("productName")).strip()
+            for p in products
+            if isinstance(p, Mapping) and p.get("productName")
+        )
+        coupons.append(
+            StoreCoupon(
+                title=title,
+                coupon_id=_text(raw.get("couponId")),
+                coupon_code=_text(raw.get("couponCode")),
+                trade_period=_text(raw.get("tradeDateTime")),
+                product_codes=codes,
+                product_names=names,
+                price_hint=parse_price_hint(title),
+            )
+        )
+    return tuple(coupons)
+
+
+_PRICE_HINT = re.compile(r"(\d+(?:\.\d+)?)\s*元")
+_PERIOD_RE = re.compile(
+    r"(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2})\s*[-~至]\s*(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2})"
+)
+
+
+def parse_price_hint(text: Optional[str]) -> Optional[Decimal]:
+    """从券标题里提取「9.9元」这类用券价。
+
+    注意：这是**用券后的价格**，不是满减金额。不能拿它当折扣算进订单总额。
+    """
+
+    if not text:
+        return None
+    match = _PRICE_HINT.search(text)
+    return Decimal(match.group(1)) if match else None
+
+
+@dataclass(frozen=True)
+class StoreCouponMatch:
+    coupon: StoreCoupon
+    applicable: bool
+    reason: str
+
+
+def match_store_coupons(
+    coupons: Sequence[StoreCoupon], cart_product_codes: Sequence[str]
+) -> Tuple[StoreCouponMatch, ...]:
+    """判断门店券是否可能适用于当前购物车（只按商品范围匹配，不判断金额）。"""
+
+    cart = {str(code) for code in cart_product_codes if code}
+    results = []
+    for coupon in coupons:
+        if not coupon.product_codes:
+            results.append(StoreCouponMatch(coupon, True, "未限定商品，需在下单页确认"))
+            continue
+        hit = cart & set(coupon.product_codes)
+        if not hit:
+            results.append(
+                StoreCouponMatch(
+                    coupon,
+                    False,
+                    f"仅适用于：{coupon.product_scope}，购物车里没有匹配商品",
+                )
+            )
+        elif len(hit) == len(coupon.product_codes):
+            results.append(StoreCouponMatch(coupon, True, "适用商品都在购物车里"))
+        else:
+            results.append(
+                StoreCouponMatch(
+                    coupon, True, f"部分适用（{len(hit)}/{len(coupon.product_codes)} 个商品在车内）"
+                )
+            )
+    return tuple(results)
+
+
+STORE_COUPON_CAVEATS = (
+    "门店券接口只返回券名、券码、有效期与适用商品，不返回门槛和面额。",
+    "因此不能计算「券后实付」；只能判断这张券可能适用于当前门店与商品。",
+    "最终可用性与抵扣金额以下单页 calculate-price 的 couponId 计算结果为准。",
+)
+
+
+# ---------------------------------------------------------------- Markdown 券
+# 官方文档 4.4.1 / 4.4.3：麦麦省列表与「我的优惠券」返回 Markdown 文本，不是 JSON。
+
+
+@dataclass(frozen=True)
+class TextCoupon:
+    title: str
+    status: Optional[str] = None
+    price_text: Optional[str] = None
+    price: Optional[Decimal] = None
+    valid_period: Optional[str] = None
+    tags: Tuple[str, ...] = ()
+    coupon_id: Optional[str] = None
+    coupon_code: Optional[str] = None
+
+    @property
+    def claimable(self) -> Optional[bool]:
+        if self.status is None:
+            return None
+        if "不可领取" in self.status:
+            return False
+        return "未领取" in self.status or "可领取" in self.status
+
+    def as_dict(self) -> dict:
+        return {
+            "title": self.title,
+            "status": self.status,
+            "price_text": self.price_text,
+            "price": self.price,
+            "valid_period": self.valid_period,
+            "tags": list(self.tags),
+        }
+
+
+def parse_markdown_coupons(text: str) -> Tuple[TextCoupon, ...]:
+    """解析麦麦省/卡包的 Markdown 券列表。
+
+    只提取文本里明确写出的字段；没有的保持 None，不推断门槛与面额。
+    """
+
+    if not text or "券" not in text:
+        return ()
+
+    coupons: list[TextCoupon] = []
+    blocks: list[list[str]] = []
+    current: list[str] = []
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## ") or stripped.startswith("- 优惠券标题"):
+            if current:
+                blocks.append(current)
+            current = [stripped]
+        elif current:
+            current.append(stripped)
+    if current:
+        blocks.append(current)
+
+    for block in blocks:
+        head = block[0]
+        title = head.lstrip("#- ").strip()
+        if "优惠券标题" in title:
+            title = title.split("：", 1)[-1].split(":", 1)[-1].strip(" \\")
+        title = title.replace("\\", "").strip()
+        if not title or title in {"您的优惠券列表", "麦麦省优惠券列表"}:
+            continue
+
+        status = None
+        price_text = None
+        valid = None
+        tags: tuple[str, ...] = ()
+        coupon_id = None
+        coupon_code = None
+
+        for line in block[1:]:
+            plain = line.replace("*", "").replace("\\", "").strip().lstrip("-").strip()
+            if plain.startswith("状态"):
+                status = plain.split("：", 1)[-1].split(":", 1)[-1].strip()
+            elif plain.startswith("优惠"):
+                price_text = plain.split("：", 1)[-1].split(":", 1)[-1].strip()
+            elif plain.startswith("有效期"):
+                valid = plain.split("：", 1)[-1].split(":", 1)[-1].strip()
+            elif plain.startswith("标签"):
+                raw_tags = plain.split("：", 1)[-1].split(":", 1)[-1]
+                tags = tuple(t.strip() for t in raw_tags.split("、") if t.strip())
+            elif plain.startswith("couponId"):
+                coupon_id = plain.split("：", 1)[-1].split(":", 1)[-1].strip()
+            elif plain.startswith("couponCode"):
+                coupon_code = plain.split("：", 1)[-1].split(":", 1)[-1].strip()
+
+        coupons.append(
+            TextCoupon(
+                title=title,
+                status=status,
+                price_text=price_text,
+                price=parse_price_hint(price_text or title),
+                valid_period=valid,
+                tags=tags,
+                coupon_id=coupon_id,
+                coupon_code=coupon_code,
+            )
+        )
+    return tuple(coupons)
+
+
+TEXT_COUPON_CAVEATS = (
+    "麦麦省与卡包返回 Markdown 文案，只有券名、状态、用券价或有效期，没有满减门槛。",
+    "「9.9 元」这类数字是用券后的价格，不是折扣金额，不能直接抵扣订单总额。",
+    "能否用于当前门店/订单，必须用 query-store-coupons 与 calculate-price 验证。",
+)

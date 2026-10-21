@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "请求成功",
+  "datetime": "2026-02-09 14:39:50",
+  "data": {
+    "productOriginalPrice": 1600,
+    "productPrice": 1500,
+    "deliveryOriginalPrice": 600,
+    "deliveryPrice": 600,
+    "originalPrice": 2200,
+    "discount": 100,
+    "price": 2100,
+    "productList": [
+      {
+        "productCode": "9900008139",
+        "productName": "DC套餐测试",
+        "quantity": 1,
+        "originalSubtotal": 1600,
+        "subtotal": 1500
+      }
+    ],
+    "takeWayList": [
+      { "code": "locker-in", "name": "店内取餐柜" },
+      { "code": "counter", "name": "柜台取餐" }
+    ],
+    "mealAssistanceList": [],
+    "tablewarePrice": 10
+  }
+}

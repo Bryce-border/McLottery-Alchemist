@@ -90,8 +90,11 @@ Token 在麦当劳 MCP 站点控制台「激活」后获取。任何仓库文件
 ## 3. `draw-lottery`（有副作用）
 
 - 入参：**无**。调用即对当前活动执行**一次**抽奖，服务端原子完成扣减。
-- 频控：短时间重复调用返回「操作太频繁，请稍后再试」，且**不扣积分**。
-- 返回：`status{code,message}`、`win`、`prizes[{name,imageUrl,typeText,validDateInfo}]`。
+- 频控：**1 秒内不可重复调用**，重复调用返回「操作太频繁，请稍后再试」，且**不扣积分**。
+- 返回：`status{code,message}`、`win`、`prizes[{name,imageUrl,typeText,validDateInfo}]`、
+  `consumePoint`（本次实扣）、`remainPoint`（剩余积分）、`remainChance`（剩余次数）。
+  - `consumePoint` / `remainPoint` 是**服务端实际值**，可用于对账；不要用本地预估替代。
+  - 失败时 `status.code` 可能是 `DRAW_FAILED`，`success` 仍为 `true`，必须看 `status.code`。
 - 无幂等键，因此**重试 = 可能重复扣分**。
 
 调用前置（缺一不可）：
@@ -105,7 +108,7 @@ Token 在麦当劳 MCP 站点控制台「激活」后获取。任何仓库文件
 
 ## 4. `query-my-prizes`（只读）
 
-- 入参：`pageNum`（默认 1）、`pageSize`（默认 10，最大 50），均为字符串。
+- 入参：`pageNum`（默认 1）、`pageSize`（默认 10，**最大 20**），均为整数。
 - 返回：`prizes[{id,name,prizeTypeText,recordTime,status,statusText,timeRemindText}]`、`hasMore`、`truncated`。
 - 用途：抽奖后核实、查看历史、辅助核实「状态未知」那笔，不能仅凭无新增奖品认定未执行。
 - 规则：接口没给核销期限就不要补；`timeRemindText` 为空即无提醒文案。
@@ -246,65 +249,201 @@ mclottery guard status
 
 `query-my-prizes` 仅辅助核实。无新增奖品不能证明未执行，余额变化也不能单独关联原请求。仍无法确认时保持 UNKNOWN。只有拿到可关联原请求的官方结果或人工确认，才可执行 `mclottery guard reconcile --attempt-id <id> --status FAILED --verified --note <不含敏感信息的核实依据>`。verified 是调用方声明，不是程序自动验证；不能用它替代核实。
 
-## 9. 点餐与外送域（**字段待联调确认**）
+## 9. 点餐与外送域（真实契约，2026-10-21 官方文档）
 
-> 说明：以下工具来自官方 MCP 工具列表，**截至 2026-10 尚未逐字段实测**。
-> 表中列的是「调用顺序 + 必带参数 + 需要核对的返回项」，不是最终字段名。
-> 首次联调后请把真实返回补进本节，并删除本提示。
+### 9.1 门店
 
-| 工具 | 必带参数 | 需要核对 | 失败处理 |
-|---|---|---|---|
-| `query-nearby-stores` | 地址或经纬度 | 门店名/SID/距离/营业状态 | 无结果就让用户换地址，不猜门店 |
-| `delivery-query-addresses` | 无 | 地址 ID、标签、是否默认 | 空列表 → 走新增地址 |
-| `delivery-create-address` | 收货人、电话、地址 | 返回的地址 ID | 先向用户复述再提交；不写进日志 |
-| `delivery-query-stores` | 地址 ID / 坐标 | 可配送门店、起送价、配送范围 | 超出范围如实说 |
-| `query-meals` | storeId | 分类、mealCode、名称、价格、时段 | 菜单为空 → 换店或换时段 |
-| `query-meal-detail` | mealCode | 套餐组成、可替换项、加价 | 规格不明 → 先问用户 |
-| `query-meal-assistance` | storeId | 是否支持团餐、最低份数 | 不支持就换店 |
-| `calculate-price` | storeId、取餐方式、商品列表（+券） | 小计、配送费、优惠、应付 | **下单前必调**；失败不下单 |
-| `create-order` | 门店、取餐方式、商品、联系方式 | 订单号、状态、实付、支付链接 | 超时 → 查订单列表，**禁止重试** |
-| `query-order` | 订单号 | 状态、商品、金额、配送信息 | 查不到 → 让用户去官方端核对 |
-| `order-list` | 分页 | 最近订单、时间、状态 | 用于核实「刚才那单成没成」 |
-| `cancel-order` | 订单号 | 取消结果、退款说明 | 失败原样转述，不承诺退款时效 |
-| `now-time-info` | 无 | 当前时间 | 用于活动/营业时间判断 |
+`query-nearby-stores`（到店）：
 
-点餐调用链（依赖严格串行）：
+| 入参 | 必填 | 说明 |
+|---|---|---|
+| `searchType` | 是 | **1=搜索收藏餐厅（默认）**、2=按位置搜索、3=按经纬度 |
+| `beType` | 是 | 1=到店自取、5=得来速车道 |
+| `city` / `keyword` | 仅 searchType=2 | 城市 + 位置关键词 |
+| `longitude` / `latitude` | 仅 searchType=3 | 经纬度 |
 
-```text
-query-nearby-stores / delivery-query-stores
-  → query-meals
-  → query-meal-detail（按需）
-  → calculate-price
-  → create-order
-  → query-order / order-list
-  → cancel-order（按需）
+**坑**：`searchType` 默认是「收藏餐厅」，不是「附近」。用户问「附近有什么店」时必须显式传 2 或 3，否则会拿收藏列表当附近结果。
+
+返回：`storeCode`、`beCode`、`storeName`、`address`、`distance`、`businessStatus`、`businessStartTime`、`businessEndTime`、`reservation`、`reservationTimeOptions[]`。
+
+`delivery-query-stores`（外送）：入参 `addressId`（必填）+ `beType`（2=麦乐送、6=企业团餐）。返回同上，另含预约时段。
+
+`delivery-query-addresses`：无入参，返回 `addresses[{addressId,contactName,phone,fullAddress}]`，手机号已脱敏。
+
+`delivery-create-address`：`city`、`contactName`、`phone`（11 位纯数字）、`address`、`addressDetail` 必填，`gender` 选填。返回新地址对象。
+
+### 9.2 菜单与详情
+
+`query-meals`：`storeCode`、`beCode`、`orderType`（1 到店 / 2 外送）、`beType`、`reservationDate`（预约场景必填）。
+
+返回是**索引 + 字典**，不是数组：
+
+```json
+{"frequent":[{"code":"9900008139","tags":[]}],
+ "categories":[{"name":"人气热卖","meals":[{"code":"920215","tags":["第二份半价"]}],"daypart":8}],
+ "meals":{"920215":{"name":"培根安格斯厚牛堡大套餐","currentPrice":"55.5",
+          "originalPrice":"65.5","discountType":"随单购麦金卡优惠",
+          "isCanWithOrder":true,"withOrder":{...}}}}
 ```
 
-## 10. 优惠与活动域（**部分字段待联调确认**）
+- 价格是**元**字符串（`"55.5"`）。
+- `discountType` 取值：null / 早餐卡优惠 / 促销优惠 / 麦金卡优惠 / 随单购早餐卡优惠 / 随单购麦金卡优惠。
+- 用户要随单购优惠时，必须把 `withOrder` 原样带入算价与下单，否则价格对不上。
 
-| 工具 | 必带参数 | 需要核对 | 规则 |
-|---|---|---|---|
-| `available-coupons` | 无 | 券名、门槛、面额、有效期 | 可领 ≠ 可用 |
-| `auto-bind-coupons` | 无 | 领取结果、失败项 | **有副作用**，先问用户 |
-| `query-my-coupons` | 分页 | 卡包券、状态、有效期 | 不校验门店，不做可用承诺 |
-| `query-store-coupons` | storeId | 门店可用券 | **判断可用性的唯一依据** |
-| `campaign-calendar` | 月份（如支持） | 进行中/往期/未来活动、时间窗 | 只推进行中与即将开始 |
-| `query-party-city` | 无 | 可参与城市 | 四级链第一步 |
-| `query-party-store` | 城市 | 可参与门店 | 第二步 |
-| `query-partystore-date` | 门店 | 可预约日期 | 第三步 |
-| `query-partystore-session` | 门店 + 日期 | 可预约场次、余位 | 第四步；空即无位 |
-| `party-order-create` | 城市/门店/日期/场次/人数 | 订单与支付信息 | **有副作用**，确认后下 |
+`query-meal-detail`：`code`、`storeCode`、`beCode`、`orderType`、`beType`。返回 `price`、`rounds[]`、`modification{items[{maxValues,minValues,values[{code,price,name,maxQuantity,minQuantity,selectedQuantity,selectedKey,unselectedKey}]}]}`、`supportModify`。
 
-## 11. 营养域
+### 9.3 算价（**单位：分**）
 
-| 工具 | 必带参数 | 返回要点 | 用途 |
-|---|---|---|---|
-| `list-nutrition-foods` | 无 | 餐品名、能量、蛋白质、脂肪、碳水、钠、钙 | 热量组合、单餐评估 |
+入参：`storeCode`、`beCode`、`orderType`、`beType`、`reservationDate`、`gmServiceCode`（团餐）、`withOrder`、`needTableware`、`items[]`。
 
-- 份量口径以返回为准；缺热量字段的餐品**不参与组合**，但要向用户说明。
+`items[]`：`productCode`、`quantity`、`couponId`、`couponCode`、`modification{values[{code,quantity,key}]}`、`roundList[{round,comboItemList[{code,quantity,modification}]}]`。
+
+返回全部金额**以分为单位**：
+
+```json
+{"productOriginalPrice":1600,"productPrice":1600,"deliveryOriginalPrice":600,
+ "deliveryPrice":600,"originalPrice":2200,"discount":0,"price":2200,
+ "productList":[{"productCode":"...","productName":"...","quantity":1,
+                 "originalSubtotal":1600,"subtotal":1600}],
+ "takeWayList":[{"code":"locker-in","name":"店内取餐柜"}],
+ "mealAssistanceList":[],"tablewarePrice":10}
+```
+
+- `2200` = 22.00 元；`tablewarePrice:10` = 0.10 元。
+- 到店下单的 `takeWayCode` **只能来自 `takeWayList`**，不能自己编。
+
+### 9.4 下单（**单位：元**）
+
+入参：`storeCode`、`beCode`、`beType`、`orderType` 隐含在 beType、`addressId`（外送必填）、`takeWayCode`（到店必填）、`reservationDate`、`gmServiceCode`（团餐必填）、`withOrder`、`needTableware`、`remark`（≤50 字，外送引导用户填）、`items[]`。
+
+返回：
+
+```json
+{"orderId":"1030938730000733964700499858","payId":"11940981078137585664",
+ "payH5Url":"https://m-sit.mcdchina.net/mcp/scanToPay?orderId=...",
+ "orderDetail":{"orderStatus":"待支付","storeName":"...","storeAddress":"...",
+   "orderProductList":[{"productName":"DC套餐测试","quantity":1,"price":"16",
+                        "comboItemList":[{"itemName":"...","itemQuantity":1}]}],
+   "totalAmount":"22","realTotalAmount":"22","totalDiscountAmount":"0","couponList":[],
+   "deliveryInfo":{"deliveryType":"立即送出","deliveryAddress":"...","addressDetail":"...",
+                   "mobilePhone":"152****6666","expectDeliveryTime":""},
+   "deliveryPrice":"6","productPrice":"16","takeWay":"locker-in",
+   "pickupCode":"","lockerCode":"","lockerQrCode":"","remark":""}}
+```
+
+三个关键：
+
+1. **有 `payH5Url`**，原样展示给用户去支付，不代付、不改写。
+2. 这里的金额是**元**（`"22"` = 22 元），与算价的「分」不同，混用会差 100 倍。
+3. `pickupCode` / `lockerCode` 可能为空字符串，空值就是「还没出码」，不能补。
+
+### 9.5 查单与取消
+
+- `query-order`：`orderId` 必填，返回同 `orderDetail` 结构，`orderStatus` 是中文字符串。
+- `order-list`：**无入参**，最多返回最近 10 笔；用于核实「刚才那单成没成」。
+- `cancel-order`：`orderId` + **`cancelReasonCode` 必填**：
+  1 改主意了 / 2 重复下单 / 3 点错了点多了点少了 / 4 地址电话填错了 / 5 送达时间选错了 / -1 其它原因。
+  返回 `{cancelResult:true, orderId:""}` —— **返回的 orderId 可能是空字符串**，不能拿它判断取消对象，要用原订单号。
+
+调用链：
+
+```text
+query-nearby-stores（searchType=2/3） / delivery-query-stores(addressId, beType)
+  → query-meals(storeCode, beCode, orderType, beType)
+  → query-meal-detail(按需)
+  → calculate-price（分）→ 取 takeWayList 里的 takeWayCode
+  → create-order（元）→ payH5Url
+  → query-order / order-list
+  → cancel-order(orderId + cancelReasonCode)
+```
+
+## 10. 优惠与活动域（真实契约）
+
+### 10.1 门店券（唯一能判断「这单能不能用」的来源）
+
+`query-store-coupons` 入参：`storeCode`（必填）、`beCode`、`orderType`（1 到店 / 2 外送）、`beType`（1/2/5/6）、`reservationDate`。
+
+返回：
+
+```json
+[{"title":"外送优惠券二次券","couponId":"...","couponCode":"...",
+  "tradeDateTime":"2025-04-21 23:23:00-2026-07-01 23:59:59",
+  "products":[{"productCode":"...","productName":"甜蜜小食1+1"}]}]
+```
+
+**没有门槛、没有面额、没有折扣率。** 只能判断：这张券在该门店/取餐方式下存在，且可能限定某些商品。
+「券后实付」只能用 `calculate-price` 传 `couponId` 得到，不能自己算。
+
+### 10.2 麦麦省与卡包（**返回 Markdown，不是 JSON**）
+
+`available-coupons`（无入参）返回：
+
+```text
+### 麦麦省优惠券列表：
+- 优惠券标题：11.9元麦乐鸡 \
+  状态：已领取 \
+```
+
+状态三种：`已领取` / `未领取` / `不可领取`。
+
+`auto-bind-coupons`（无入参，有副作用）返回「总计/成功/失败 + 成功券的 couponId、couponCode」的 Markdown。
+
+`query-my-coupons`（无入参）返回：
+
+```text
+## 9.9元薯你最甜
+- **优惠**: ¥9.9 (用券价格)
+- **有效期**: 2025-12-09 00:00-2026-02-12 23:59
+- **标签**: 到店专用、外送专用
+```
+
+- 券名里的「9.9 元」是**用券价**，不是满减金额。
+- 三个接口都不给门槛/面额，别用满减模型硬算。
+
+### 10.3 活动日历（Markdown）
+
+`campaign-calendar`：`specifiedDate`（yyyy-MM-dd，选填；给了就查该日附近共三天，不给查当月）。返回带 emoji 与 `<img>` 的营销文案，按「往期回顾 / 今日」分组。原样展示或摘要，不编时间与规则。
+
+### 10.4 主题活动（四级链 + 下单）
+
+| 工具 | 必带参数 |
+|---|---|
+| `query-party-city` | `spuId` |
+| `query-party-store` | `spuId`、`code`（城市 code）、可选经纬度 |
+| `query-partystore-date` | `spuId`、`storeCode` |
+| `query-partystore-session` | `spuId`、`storeCode`、`dateStr` |
+| `party-order-create` | `spuId`、`skuId`、`storeCode`、`dateStr`、`code`、`partyType`、`id`（场次 ID）、`timeStart`、`timeEnd`、`leftNum`、`count` |
+
+- `session` 返回 `price`（**分为单位，需另行核对**）、`leftNum`、`timeStart/timeEnd`、`partyMin/partyMax`。
+- `party-order-create` 返回 `orderId`、`upgPayId`、`amount`（元）、`payH5Url`、`goods[]`。
+- 下单前必须把场次 ID、时间、剩余名额一起带上；场次空即无位。
+
+## 11. 营养域（**TOON 格式**）
+
+`list-nutrition-foods` 无入参，返回 `data` 是字符串：
+
+```text
+[2]{productName,nutritionDescription,energyKj,energyKcal,protein,fat,carbohydrate,sodium,calcium}:
+  猪柳麦满分,null,1288,308,16,16,24,781,213
+  巨无霸,null,2300,550,25,30,40,900,120
+```
+
+- 表头 `[N]{列名}`，随后 N 行逗号分隔；`null` 表示缺值。
+- **优先用 `energyKcal`**，没有 kcal 才用 `energyKj ÷ 4.184` 并标注「由 kJ 换算」。
+- 份量口径以返回为准；缺热量的餐品不参与组合，但要告诉用户哪些没算进来。
 - 营养建议不构成医疗、减重或疾病饮食建议。
 
-## 12. 新域联调清单
+## 12. 待确认清单（已大幅收窄）
+
+已按官方文档确认：门店、菜单、详情、算价（分）、下单（元 + payH5Url）、取消原因、门店券、麦麦省/卡包 Markdown、活动日历、营养 TOON、商城兑换、主题活动。
+
+仍需实测确认：
+
+- [ ] `party-session.price` 与 `party-order-create.amount` 的单位是否分别为分/元（文档示例 1000 vs 250）
+- [ ] `calculate-price` 传 `couponId` 后，`discount` 是否已含券抵扣
+- [ ] 算价的 `takeWayList` 是否有默认项（没有就必须让用户选）
+- [ ] `query-meals` 的 `daypart` 与当前时间如何对应（是否需要过滤时段）
+
 
 首次联调时按顺序验证并补文档：
 

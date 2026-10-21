@@ -3,12 +3,27 @@
 > 只做「按热量和营养数据搭配一餐」的算术，不做医疗、减重、疾病饮食建议。
 > 数据来源：`list-nutrition-foods`。
 
-## 1. 数据口径
+## 1. 数据口径（TOON 格式）
 
-- 接口返回餐品的能量、蛋白质、脂肪、碳水化合物、钠、钙等；**份量口径以接口为准**。
-- 接口没给份量/规格时，所有数字都标注「按接口默认份」，不要自行换算成 100g。
+`list-nutrition-foods` 无入参，返回的 `data` 是**字符串**，不是 JSON 数组：
+
+```text
+[2]{productName,nutritionDescription,energyKj,energyKcal,protein,fat,carbohydrate,sodium,calcium}:
+  猪柳麦满分,null,1288,308,16,16,24,781,213
+  巨无霸,null,2300,550,25,30,40,900,120
+```
+
+- 表头 `[N]{列名}`，随后 N 行逗号分隔，`null` 表示缺值。
+- **优先用 `energyKcal`**；只有 `energyKj` 时除以 4.184，并标注「由 kJ 换算」。
+- 份量口径以接口为准；接口没给就标「按接口默认份」，不要自行换算成 100g。
 - 字段缺失（没有热量）→ 该餐品**不参与计算**，但必须告诉用户「这几个没算进来」。
 - 不把「同类餐品」的热量套到缺数据的餐品上。
+
+命令行：
+
+```bash
+python run.py nutrition --input nutrition_toon.json --target 700
+```
 
 ## 2. 用户给目标热量时
 

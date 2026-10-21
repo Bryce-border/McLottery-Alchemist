@@ -176,6 +176,39 @@ references、三篇测试用例文档、`README.md`（四要素齐全）、`MCP_
 **修掉的隐患**：此前 README/SKILL 写「兑换返回订单详情与支付链接」，实际返回只有 `payId`；
 已改为「返回订单号与支付标识，支付在官方页面完成，不拼 URL、不代付」。
 
+## 第 11 轮：五份官方工具文档落地（2026-10-21 晚）
+
+**输入**：点餐工具介绍、互动与内容、麦麦省领券、麦麦商城、通用，共 5 份官方文档。
+
+**读出来的六处硬偏差**（此前是推测，已全部修正）：
+
+1. **营养返回 TOON，不是 JSON。** `data` 是 `[N]{列名}` + 逗号分隔行，且同时有 `energyKj` 与 `energyKcal`。
+   原 `nutrition.py` 完全解析不了，等于「营养能力是空的」。
+2. **算价单位是分，下单单位是元。** `price:2200` = 22 元；`totalAmount:"22"` = 22 元。混用差 100 倍。
+3. **门店是 `storeCode` + `beCode`，没有 `storeId`。** 到店搜索 `searchType` 默认 1 是「收藏餐厅」，
+   不是「附近」——用户问附近时必须传 2/3。
+4. **取消必须带 `cancelReasonCode`。** 1/2/3/4/5/-1，缺了根本无法取消；返回的 `orderId` 可能是空串。
+5. **券接口没有门槛与面额。** `query-store-coupons` 只有 title/couponId/couponCode/tradeDateTime/products；
+   麦麦省与卡包直接返回 **Markdown 文本**。原来那套「满减试算」在真实数据上算不出来。
+6. **点餐下单返回 `payH5Url`**，商城兑换只有 `payId`。两者不能混为一谈。
+
+**实现**：
+
+1. `nutrition.py`：新增 `parse_toon_table`，支持引号包裹与 `null`；只有 kJ 时 ÷4.184 并标记 `kcal_converted`。
+2. `order.py`：新增 `fen_to_yuan`、`parse_price_result`（分→元）、`parse_order_created`（payH5Url/takeWay/pickupCode）、
+   `CANCEL_REASONS`、`validate_cancel`；`verify_price` 加 `unit="fen"`。
+3. `coupon.py`：新增 `StoreCoupon` + `match_store_coupons`（只按商品范围匹配，不算金额）、
+   `parse_markdown_coupons`（麦麦省/卡包）；明确「用券价 ≠ 折扣额」。
+4. CLI 新增 `store-coupons`、`coupon-text`；`coupons` 降级为「仅适用于带门槛/面额的券数据」。
+5. 文档：`tool-workflows.md` §9-§12 重写为真实契约；`ordering-workflow.md`、`coupon-strategy.md` 整体重写；
+   `nutrition-health.md`、`campaigns.md` 补 TOON 与 Markdown 口径；`SKILL.md` 工具表逐行改入参。
+6. demo：福利中心改为「券名 + 用券价 + 适用商品」，点餐台不再显示假折扣，券行统一写「待 calculate-price 确认」。
+
+**测试**：147 → **170**，新增 `test_real_contracts.py` 覆盖 TOON、分/元、payH5Url、取消原因、门店券匹配、Markdown 券。
+**打包**：上传版 zip 更新为 102.7 KB / 18 文件。
+
+**这轮的意义**：把「看起来能跑」变成「字段对得上」。尤其 TOON 与分/元两处，不修就是功能性错误，不是文档瑕疵。
+
 ## 关键决策
 
 | 决策 | 理由 |

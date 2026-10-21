@@ -10,7 +10,7 @@ McLottery Alchemist 用三层结构回答这些问题：
 | 层 | 负责 | 不负责 |
 |---|---|---|
 | **Skill（提示词 + 能力模块）** | 理解意图、组织对话、决定调哪个工具、按需加载点餐/券/营养/计划模块 | 算数、记账 |
-| **确定性计算层（`src/mclottery`）** | 到期分类、兑换筛选、成本试算、券后实付、热量组合、积分缺口计划、下单金额复核 | 访问网络 |
+| **确定性计算层（`src/mclottery`）** | 到期分类、兑换筛选、成本试算、带券算价比较、热量组合、积分缺口计划、下单金额复核 | 访问网络 |
 | **MCP 工具（麦当劳官方 33 个）** | 门店、菜单、算价、下单、取消、券、积分、抽奖、活动、营养 | 判断该不该买、该不该抽 |
 
 ## 目标用户
@@ -109,9 +109,9 @@ skills/mclottery-alchemist/assets/demo.html
 | 面板 | 能体验什么 | 背后用的工具 |
 |---|---|---|
 | 炼金总览 | 能力介绍、今日活动播报、账户摘要、到期风险、快捷入口 | 账户 + 活动 + 券（只读） |
-| 点餐台 | 选门店/取餐方式、菜单加购、券后实付试算、六项确认卡 | 门店、菜单、算价、下单（意图） |
+| 点餐台 | 选门店/取餐方式、菜单加购、带券算价比较试算、六项确认卡 | 门店、菜单、算价、下单（意图） |
 | 活动日历 | 进行中/即将开始的活动、主题活动四级预约链 | `campaign-calendar`、`query-party-*` |
-| 福利中心 | 可领券、门槛与券后实付、领券授权说明 | `available-coupons`、`query-store-coupons` |
+| 福利中心 | 可领券、门槛与带券算价比较、领券授权说明 | `available-coupons`、`query-store-coupons` |
 | 营养实验室 | 目标热量输入、1–3 件组合、蛋白质/脂肪/碳水/钠汇总 | `list-nutrition-foods` + 本地算术 |
 | 积分计划 | 缺口、每次约得、预计周期、预计总支出、逐周进度 | `query-my-account` + 商城 + 本地计算 |
 | 积分体检站 | 余额与月度到期、固定成本试算、规划入口 | `query-my-account` |
@@ -293,13 +293,13 @@ WorkBuddy Agent ── 加载 ──▶ skills/mclottery-alchemist/SKILL.md
 │   ├── models.py   expiry.py   value.py
 │   ├── lottery.py  guard.py    plan.py   cli.py
 │   ├── nutrition.py mealplan.py coupon.py order.py redemption.py
-└── tests/                        # 147 个单元测试 + fixtures
+└── tests/                        # 170 个单元测试 + fixtures
 ```
 
 ## 测试
 
 ```bash
-python -m unittest discover -s tests -v     # 147 tests, OK
+python -m unittest discover -s tests -v     # 170 tests, OK
 pytest -q                                   # 可选，已配置 pythonpath=src
 ```
 
@@ -316,7 +316,9 @@ pytest -q                                   # 可选，已配置 pythonpath=src
 - 接口**不返回分批到期明细**，到期风险只能到「月」粒度。
 - **接口不返回积分获取速度**（消费 1 元得多少分），积分计划的到账速度必须由官方规则或用户输入提供。
 - 不提供商品参考价值，因此不做「元/积分」性价比排名。
-- 点餐/券/营养域的部分字段尚未逐字段实测，契约以 `references/tool-workflows.md` 标注为准；首次联调后需补真实返回。
+- 点餐/券/营养域已按官方文档（2026-10-21）对齐字段，但**未做真实网络联调**；`party-session.price` 与 `party-order-create.amount` 的单位仍待确认。
+- **券接口不返回门槛与面额**：门店券只能判断适用性，券后金额必须由 `calculate-price` 计算；麦麦省与卡包是 Markdown 文本。
+- **算价单位是分、下单单位是元**，代码已分别处理，调用时不要混用。
 - 本 Skill 只影响对话与本地台账，**不能**替服务端做风控、库存或支付校验。
 
 ## 合规说明

@@ -30,8 +30,8 @@
 | `query-meals` | 当前门店菜单 | 无 | 待联调 |
 | `query-meal-detail` | 套餐组成/可替换项 | 无 | 待联调 |
 | `query-meal-assistance` | 企业团餐助餐服务 | 无 | 待联调 |
-| `calculate-price` | 算价（含优惠、配送费） | 无 | 待联调 |
-| `create-order` | 创建订单 | **生成订单与支付链接** | 待联调 |
+| `calculate-price` | 算价（含优惠、配送费） | 无 | 已确认（官方文档，单位分） |
+| `create-order` | 创建订单 | **生成订单与 payH5Url** | 已确认（官方文档） |
 | `query-order` | 订单详情/进度 | 无 | 待联调 |
 | `order-list` | 历史订单 | 无 | 待联调 |
 | `cancel-order` | 取消订单 | **改变订单状态** | 待联调 |
@@ -88,6 +88,26 @@
 | 接口文案可能截断 | `orderStatusSubTitle` 示例缺前半句，原样转述 |
 
 本地预检与解读：`mclottery redeem ...`、`mclottery redeem-result --input ...`。
+
+### 2.5 点餐域关键字段（官方文档确认）
+
+| 事实 | 依据 |
+|---|---|
+| 门店标识是 `storeCode` + `beCode` | 所有点餐工具入参，无 `storeId` |
+| 到店搜索 `searchType` 默认 1 = 收藏餐厅 | 找附近必须传 2（位置）或 3（经纬度） |
+| 到店取餐方式 `beType=1`，得来速 `5`，外送 `2`，团餐 `6` | 门店/菜单/算价/下单一致 |
+| 菜单是 `meals{}` 字典 + `categories[]` 索引 | 价格 `currentPrice` 是**元** |
+| 算价 `price` 单位是**分** | `2200` = 22 元；`tablewarePrice:10` = 0.10 元 |
+| 下单 `totalAmount` 单位是**元** | `"22"` = 22 元，与算价不同 |
+| 下单返回 `payH5Url` | 点餐有支付链接；商城兑换只有 `payId` |
+| 到店下单必须带 `takeWayCode` | 只能来自算价返回的 `takeWayList` |
+| 取消必须带 `cancelReasonCode` | 1/2/3/4/5/-1；返回 `orderId` 可能为空 |
+| `order-list` 无入参 | 最多返回最近 10 笔 |
+| 券接口不返回门槛/面额 | 门店券只有 title/couponId/couponCode/tradeDateTime/products |
+| 麦麦省与卡包返回 Markdown | 用券价 ≠ 折扣额，券后实付只能由算价得出 |
+| 营养返回 TOON 字符串 | `[N]{...}` + 逗号行，含 `energyKj` 与 `energyKcal` |
+| 抽奖 1 秒内不可重复 | 返回 `consumePoint`/`remainPoint`/`remainChance` |
+| 奖品 `pageSize` 最大 20 | 不是 50 |
 
 ## 3. 调用流程
 
@@ -223,6 +243,11 @@ available-coupons ──▶ 询问 ──▶ auto-bind-coupons
 11. **营养接口不保证份量口径。** 热量单位需联调确认（kcal / kJ 差 4.18 倍），缺热量的餐品不参与组合。
 12. **积分获取速度不可得。** 接口不返回「消费 1 元得多少分」，积分计划不得自行估算到账速度。
 13. **兑换返回「待支付」。** `leftPaySecond` 是支付窗口，超时自动取消；`realTotalPoints` 与 `realTotalAmount` 必须同时展示；`payId` 不是支付链接。
+14. **算价用分、下单用元。** 两个接口单位差 100 倍，必须显式换算，不能混用。
+15. **门店用 `storeCode` + `beCode`，没有 `storeId`。** 到店搜索默认是收藏餐厅，找附近要传 `searchType=2/3`。
+16. **取消订单必须带 `cancelReasonCode`。** 缺了无法取消；返回 `orderId` 可能是空字符串，以原订单号为准。
+17. **券后金额不能自算。** 门店券无门槛/面额，麦麦省与卡包是 Markdown；唯一可信算法是带 `couponId` 调 `calculate-price` 比较两次结果。
+18. **营养是 TOON 格式。** `data` 是字符串表格，优先用 `energyKcal`，只有 kJ 时才除以 4.184。
 
 ## 5. 业务价值
 
@@ -287,6 +312,7 @@ available-coupons ──▶ 询问 ──▶ auto-bind-coupons
 - 未执行真实抽奖（当时余额不足以参与），`draw-lottery` 的行为依据工具契约文档与模拟返回（`tests/fixtures/draw_*.json`）验证。
 - 2026-10-21：按官方工具清单扩展点餐、优惠、活动、营养域。新增域尚未逐字段联调，契约以工具清单与 `references/tool-workflows.md` 的「待联调」标注为准；计算层（热量组合、券试算、积分计划、订单复核）已用 55 个新增单测覆盖，不依赖网络。
 - 2026-10-21：取得 `mall-create-order` 官方文档与真实返回结构，确认三点：兑换可能同时扣积分与现金（示例 0 积分 + 0.01 元）、下单后为「待支付」且有 `leftPaySecond` 支付窗口、实物（`spuCategory="2"`）必须传 `addressId`。新增 `redemption.py` 与 `redeem` / `redeem-result` 命令，并用真实结构落 fixture、补 17 个单测。
+- 2026-10-21：取得点餐、互动、麦麦省、商城、通用五份官方工具文档，修正早期推测：算价单位是分而下单是元、门店标识为 `storeCode`/`beCode`、取消需 `cancelReasonCode`、券接口无门槛面额、麦麦省与卡包返回 Markdown、营养返回 TOON。新增 `store-coupons` / `coupon-text` 命令与 TOON 解析，补 23 个契约单测，测试总数 170。
 
 ## 守卫运行与未知状态恢复
 

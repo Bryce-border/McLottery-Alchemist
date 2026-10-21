@@ -1,31 +1,44 @@
 """营养数据与热量组合（list-nutrition-foods 的确定性计算）。
 
+**真实返回是 TOON 紧凑格式，不是 JSON 数组**（官方文档 4.2.1）：
+
+```
+data: "[1]{productName,nutritionDescription,energyKj,energyKcal,protein,fat,carbohydrate,sodium,calcium}:
+       猪柳麦满分,null,1288,308,16,16,24,781,213"
+```
+
 设计约束：
 
 1. 营养字段一律来自接口，缺失保留 ``None`` 并登记到 ``missing_fields``；
    不用「同类餐品估算」补齐热量。
-2. 组合推荐只做「在给定热量目标下最接近的一餐」，不输出减脂/增肌等医学建议，
-   也不承诺减重效果。
-3. 份量口径以接口返回为准；接口未给份量时，所有数值都标注为「按接口默认份」。
+2. 接口同时给 ``energyKj`` 与 ``energyKcal``：**优先用 kcal**，只有 kJ 时才除以 4.184 并标注换算。
+3. 组合推荐只做「在给定热量目标下最接近的一餐」，不输出减脂/增肌等医学建议。
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from itertools import combinations
 from typing import Any, Iterable, Mapping, Optional, Sequence, Tuple
 
 from .models import to_decimal, unwrap
 
-ENERGY_KEYS = ("energy", "calorie", "calories", "kcal", "energyKcal", "heat")
+KJ_PER_KCAL = Decimal("4.184")
+
+ENERGY_KEYS = ("energyKcal", "energy", "calorie", "calories", "kcal", "energyKcalValue", "heat")
+ENERGY_KJ_KEYS = ("energyKj", "energyKJ", "kj")
 PROTEIN_KEYS = ("protein", "proteins")
 FAT_KEYS = ("fat", "fats", "totalFat")
 CARB_KEYS = ("carbohydrate", "carbohydrates", "carb", "carbs")
 SODIUM_KEYS = ("sodium", "na")
 CALCIUM_KEYS = ("calcium", "ca")
-NAME_KEYS = ("name", "productName", "mealName", "foodName", "title")
+NAME_KEYS = ("productName", "name", "mealName", "foodName", "title")
+DESC_KEYS = ("nutritionDescription", "description", "desc")
 CODE_KEYS = ("code", "mealCode", "productCode", "skuId", "id")
+
+_TOON_HEADER = re.compile(r"^\s*\[(\d+)\]\{([^}]*)\}\s*:\s*$")
 
 
 def _pick(data: Mapping[str, Any], keys: Sequence[str]) -> Any:
@@ -36,18 +49,73 @@ def _pick(data: Mapping[str, Any], keys: Sequence[str]) -> Any:
 
 
 @dataclass(frozen=True)
+class ToonTable:
+    columns: Tuple[str, ...]
+    rows: Tuple[Mapping[str, str], ...]
+
+    def as_dicts(self) -> Tuple[Mapping[str, str], ...]:
+        return self.rows
+
+
+def _split_row(line: str) -> list[str]:
+    """按逗号切分，支持双引号包裹（TOON 对含逗号的文本会加引号）。"""
+
+    cells: list[str] = []
+    buf: list[str] = []
+    in_quotes = False
+    for char in line:
+        if char == '"':
+            in_quotes = not in_quotes
+            buf.append(char)
+        elif char == "," and not in_quotes:
+            cells.append("".join(buf).strip())
+            buf = []
+        else:
+            buf.append(char)
+    cells.append("".join(buf).strip())
+    return [c[1:-1] if len(c) >= 2 and c[0] == c[-1] == '"' else c for c in cells]
+
+
+def parse_toon_table(text: str) -> Optional[ToonTable]:
+    """解析 TOON 表格；格式不符返回 None（不猜结构）。"""
+
+    if not text or "{" not in text:
+        return None
+    lines = [line for line in text.splitlines() if line.strip()]
+    if not lines:
+        return None
+    header = _TOON_HEADER.match(lines[0])
+    if not header:
+        return None
+    expected = int(header.group(1))
+    columns = tuple(c.strip() for c in header.group(2).split(",") if c.strip())
+    rows: list[Mapping[str, str]] = []
+    for line in lines[1:]:
+        cells = _split_row(line)
+        if len(cells) < len(columns):
+            cells += [""] * (len(columns) - len(cells))
+        rows.append(dict(zip(columns, cells)))
+        if len(rows) >= expected:
+            break
+    return ToonTable(columns=columns, rows=tuple(rows))
+
+
+@dataclass(frozen=True)
 class NutritionFact:
     """单个餐品的营养信息，仅保留接口给出的字段。"""
 
     name: str
     code: Optional[str] = None
     energy_kcal: Optional[Decimal] = None
+    energy_kj: Optional[Decimal] = None
     protein_g: Optional[Decimal] = None
     fat_g: Optional[Decimal] = None
     carbohydrate_g: Optional[Decimal] = None
     sodium_mg: Optional[Decimal] = None
     calcium_mg: Optional[Decimal] = None
+    description: Optional[str] = None
     serving: Optional[str] = None
+    kcal_converted: bool = False
     missing_fields: Tuple[str, ...] = ()
 
     @property
@@ -58,17 +126,23 @@ class NutritionFact:
     def from_dict(cls, raw: Mapping[str, Any]) -> "NutritionFact":
         name = str(_pick(raw, NAME_KEYS) or "未命名餐品").strip()
         code = _pick(raw, CODE_KEYS)
-        energy = to_decimal(_pick(raw, ENERGY_KEYS))
+        kcal = to_decimal(_pick(raw, ENERGY_KEYS))
+        kj = to_decimal(_pick(raw, ENERGY_KJ_KEYS))
+        converted = False
+        if kcal is None and kj is not None:
+            kcal = (kj / KJ_PER_KCAL).quantize(Decimal("0.1"))
+            converted = True
         protein = to_decimal(_pick(raw, PROTEIN_KEYS))
         fat = to_decimal(_pick(raw, FAT_KEYS))
         carb = to_decimal(_pick(raw, CARB_KEYS))
         sodium = to_decimal(_pick(raw, SODIUM_KEYS))
         calcium = to_decimal(_pick(raw, CALCIUM_KEYS))
+        description = _pick(raw, DESC_KEYS)
         serving = _pick(raw, ("serving", "portion", "unit", "spec", "weight"))
 
         missing = []
         for label, value in (
-            ("energy", energy),
+            ("energy", kcal),
             ("protein", protein),
             ("fat", fat),
             ("carbohydrate", carb),
@@ -81,25 +155,38 @@ class NutritionFact:
         return cls(
             name=name,
             code=str(code) if code is not None else None,
-            energy_kcal=energy,
+            energy_kcal=kcal,
+            energy_kj=kj,
             protein_g=protein,
             fat_g=fat,
             carbohydrate_g=carb,
             sodium_mg=sodium,
             calcium_mg=calcium,
+            description=str(description) if description not in (None, "null") else None,
             serving=str(serving) if serving is not None else None,
+            kcal_converted=converted,
             missing_fields=tuple(missing),
         )
 
 
 def _food_list(payload: Any) -> Iterable[Mapping[str, Any]]:
-    """兼容 data.list / data.items / data.foods / 顶层数组。"""
+    """兼容 TOON 字符串、data.list / data.items / 顶层数组。"""
 
+    if isinstance(payload, str):
+        table = parse_toon_table(payload)
+        return table.rows if table else []
     if isinstance(payload, list):
         return [x for x in payload if isinstance(x, Mapping)]
     data = unwrap(payload)
+    if isinstance(data, str):
+        table = parse_toon_table(data)
+        return table.rows if table else []
     for key in ("list", "items", "foods", "products", "records", "data"):
         value = data.get(key)
+        if isinstance(value, str):
+            table = parse_toon_table(value)
+            if table:
+                return table.rows
         if isinstance(value, list):
             return [x for x in value if isinstance(x, Mapping)]
     return []

@@ -33,6 +33,49 @@ ORDER_STATUS_RULES = (
     ("配送中", "配送中，一般无法取消"),
 )
 
+# 官方文档 4.2.12：取消必须带原因 code
+CANCEL_REASONS = {
+    1: "改主意了",
+    2: "重复下单",
+    3: "点错了/点多了/点少了",
+    4: "地址/电话填错了",
+    5: "送达时间选错了",
+    -1: "其它原因",
+}
+
+FEN = Decimal("100")
+
+
+def fen_to_yuan(value: Any) -> Optional[Decimal]:
+    """算价接口金额单位是**分**（1600 = 16 元）；None 原样返回。"""
+
+    amount = to_decimal(value)
+    if amount is None:
+        return None
+    return (amount / FEN).quantize(Decimal("0.01"))
+
+
+def cancel_reason_text(code: Optional[int]) -> str:
+    if code is None:
+        return "未提供取消原因"
+    return CANCEL_REASONS.get(code, f"未识别的原因 code：{code}")
+
+
+def validate_cancel(order_id: Optional[str], reason_code: Optional[int]) -> Tuple[str, ...]:
+    """取消订单的两个必填项，缺一不可。"""
+
+    blockers = []
+    if not order_id:
+        blockers.append("缺少 orderId，无法取消。")
+    if reason_code is None:
+        blockers.append(
+            "缺少 cancelReasonCode：必须从 1/2/3/4/5/-1 中选一个"
+            "（改主意/重复下单/点错/地址电话错/时间错/其它）。"
+        )
+    elif reason_code not in CANCEL_REASONS:
+        blockers.append(f"cancelReasonCode={reason_code} 不在官方取值范围内。")
+    return tuple(blockers)
+
 
 def _pick(data: Mapping[str, Any], keys: Sequence[str]) -> Any:
     for key in keys:
@@ -109,8 +152,18 @@ def verify_price(
     delivery_fee: Decimal = Decimal("0"),
     discount: Decimal = Decimal("0"),
     tolerance: Decimal = Decimal("0.01"),
+    unit: str = "yuan",
 ) -> PriceCheck:
-    """本地小计 + 配送费 − 优惠 是否等于接口返回的应付总额。"""
+    """本地小计 + 配送费 − 优惠 是否等于接口返回的应付总额。
+
+    ``unit="fen"`` 时把接口金额从分换算成元再比。**算价接口返回分，下单/订单详情返回元**，
+    两个接口单位不一致，混用会差 100 倍。
+    """
+
+    if unit == "fen":
+        remote_total = fen_to_yuan(remote_total)
+        delivery_fee = fen_to_yuan(delivery_fee) or Decimal("0")
+        discount = fen_to_yuan(discount) or Decimal("0")
 
     if any(line.subtotal is None for line in lines):
         missing = [line.name for line in lines if line.subtotal is None]
@@ -297,6 +350,187 @@ def duplicate_within(
         if created is not None and created >= cutoff:
             return record
     return None
+
+
+@dataclass(frozen=True)
+class PriceQuote:
+    """calculate-price 的可用视图（金额已由分换算为元）。"""
+
+    product_original_price: Optional[Decimal]
+    product_price: Optional[Decimal]
+    delivery_original_price: Optional[Decimal]
+    delivery_price: Optional[Decimal]
+    original_price: Optional[Decimal]
+    discount: Optional[Decimal]
+    payable: Optional[Decimal]
+    tableware_price: Optional[Decimal]
+    take_way_list: Tuple[Mapping[str, Any], ...] = ()
+    meal_assistance_list: Tuple[Mapping[str, Any], ...] = ()
+    product_list: Tuple[Mapping[str, Any], ...] = ()
+    missing_fields: Tuple[str, ...] = ()
+
+    def as_dict(self) -> dict:
+        return {
+            "product_price": self.product_price,
+            "delivery_price": self.delivery_price,
+            "original_price": self.original_price,
+            "discount": self.discount,
+            "payable": self.payable,
+            "tableware_price": self.tableware_price,
+            "take_way_list": list(self.take_way_list),
+            "product_list": list(self.product_list),
+            "missing_fields": list(self.missing_fields),
+        }
+
+
+def parse_price_result(payload: Any) -> PriceQuote:
+    """解析 4.2.10 算价返回。**金额单位是分**，这里统一换成元。"""
+
+    data = unwrap(payload)
+    missing = []
+
+    def money(key: str) -> Optional[Decimal]:
+        value = fen_to_yuan(data.get(key))
+        if value is None:
+            missing.append(key)
+        return value
+
+    def raw_list(key: str) -> Tuple[Mapping[str, Any], ...]:
+        value = data.get(key)
+        if isinstance(value, list):
+            return tuple(x for x in value if isinstance(x, Mapping))
+        return ()
+
+    return PriceQuote(
+        product_original_price=money("productOriginalPrice"),
+        product_price=money("productPrice"),
+        delivery_original_price=money("deliveryOriginalPrice"),
+        delivery_price=money("deliveryPrice"),
+        original_price=money("originalPrice"),
+        discount=money("discount"),
+        payable=money("price"),
+        tableware_price=money("tablewarePrice"),
+        take_way_list=raw_list("takeWayList"),
+        meal_assistance_list=raw_list("mealAssistanceList"),
+        product_list=raw_list("productList"),
+        missing_fields=tuple(missing),
+    )
+
+
+@dataclass(frozen=True)
+class OrderCreated:
+    """create-order 的可用视图。注意：**这里的金额是元，不是分**。"""
+
+    order_id: Optional[str]
+    pay_id: Optional[str]
+    pay_h5_url: Optional[str]
+    status_text: Optional[str]
+    store_name: Optional[str]
+    store_address: Optional[str]
+    total_amount: Optional[Decimal]
+    real_total_amount: Optional[Decimal]
+    total_discount_amount: Optional[Decimal]
+    delivery_price: Optional[Decimal]
+    product_price: Optional[Decimal]
+    take_way: Optional[str]
+    pickup_code: Optional[str]
+    locker_code: Optional[str]
+    locker_qr_code: Optional[str]
+    delivery_address: Optional[str]
+    product_names: Tuple[str, ...] = ()
+    missing_fields: Tuple[str, ...] = ()
+
+    @property
+    def has_payment_link(self) -> bool:
+        return bool(self.pay_h5_url)
+
+    def as_dict(self) -> dict:
+        return {
+            "order_id": self.order_id,
+            "pay_id": self.pay_id,
+            "pay_h5_url": self.pay_h5_url,
+            "status_text": self.status_text,
+            "store_name": self.store_name,
+            "total_amount": self.total_amount,
+            "real_total_amount": self.real_total_amount,
+            "total_discount_amount": self.total_discount_amount,
+            "delivery_price": self.delivery_price,
+            "product_price": self.product_price,
+            "take_way": self.take_way,
+            "pickup_code": self.pickup_code,
+            "locker_code": self.locker_code,
+            "locker_qr_code": self.locker_qr_code,
+            "delivery_address": self.delivery_address,
+            "product_names": list(self.product_names),
+            "missing_fields": list(self.missing_fields),
+        }
+
+
+def parse_order_created(payload: Any) -> OrderCreated:
+    data = unwrap(payload)
+    detail = data.get("orderDetail")
+    detail = detail if isinstance(detail, Mapping) else {}
+
+    def pick(*keys: str) -> Any:
+        for key in keys:
+            if key in detail and detail[key] not in (None, ""):
+                return detail[key]
+            if key in data and data[key] not in (None, ""):
+                return data[key]
+        return None
+
+    def text(value: Any) -> Optional[str]:
+        if value in (None, ""):
+            return None
+        return str(value).strip()
+
+    delivery = detail.get("deliveryInfo")
+    delivery = delivery if isinstance(delivery, Mapping) else {}
+    products = detail.get("orderProductList")
+    products = products if isinstance(products, list) else []
+
+    order_id = text(pick("orderId"))
+    pay_h5_url = text(pick("payH5Url"))
+    status_text = text(pick("orderStatus"))
+
+    missing = []
+    if order_id is None:
+        missing.append("orderId")
+    if status_text is None:
+        missing.append("orderStatus")
+    if pay_h5_url is None:
+        missing.append("payH5Url")
+
+    address_parts = [
+        text(delivery.get("deliveryAddress")),
+        text(delivery.get("addressDetail")),
+    ]
+    address = " ".join(p for p in address_parts if p) or None
+
+    return OrderCreated(
+        order_id=order_id,
+        pay_id=text(pick("payId")),
+        pay_h5_url=pay_h5_url,
+        status_text=status_text,
+        store_name=text(pick("storeName")),
+        store_address=text(pick("storeAddress")),
+        total_amount=to_decimal(pick("totalAmount")),
+        real_total_amount=to_decimal(pick("realTotalAmount")),
+        total_discount_amount=to_decimal(pick("totalDiscountAmount")),
+        delivery_price=to_decimal(pick("deliveryPrice")),
+        product_price=to_decimal(pick("productPrice")),
+        take_way=text(pick("takeWay")),
+        pickup_code=text(pick("pickupCode")),
+        locker_code=text(pick("lockerCode")),
+        locker_qr_code=text(pick("lockerQrCode")),
+        delivery_address=address,
+        product_names=tuple(
+            text(p.get("productName")) or "未命名餐品"
+            for p in products
+            if isinstance(p, Mapping)
+        ),
+        missing_fields=tuple(missing),
+    )
 
 
 def explain_order_status(status_text: Optional[str]) -> str:
