@@ -72,7 +72,7 @@ McLottery Alchemist 用三层结构回答这些问题：
 ### 方式二：只用计算层（不需要 MCP）
 
 ```bash
-git clone <your-repo-url> mclottery-alchemist
+git clone https://github.com/Bryce-border/-.git mclottery-alchemist
 cd mclottery-alchemist
 python run.py --help          # Python 3.10+，零第三方依赖
 ```
@@ -213,7 +213,7 @@ WorkBuddy Agent ── 加载 ──▶ skills/mclottery-alchemist/SKILL.md
 ├── CONTEST_DECLARATION.md        # 参赛声明（官方原文，未改动）
 ├── MCP_INTEGRATION.md            # MCP Server / Tool / 调用流程 / 业务价值
 ├── mcp-config.example.json       # 脱敏配置示例（仅环境变量占位符）
-├── workbuddy.md                  # WorkBuddy 开发对话上下文
+├── workbuddy.md                  # WorkBuddy 开发对话上下文（专项奖励核验用）
 ├── run.py                        # 零安装 CLI 入口
 ├── pyproject.toml
 ├── skills/mclottery-alchemist/
@@ -259,6 +259,6 @@ MIT
 
 ## MCti 互动体验
 
-默认三轮情景题，也支持一次答完。每题覆盖不同偏好，八种人格都有明确计分依据；支持改答、跳题、打平认领和重测。结果卡引用真实答案，附专属宣言、娱乐搭配和积分建议。可继续生成分享文案或搭子互动，全程不自动查询账户或抽奖。正式 Skill 入口是 `skills/mclottery-alchemist/SKILL.md`；工作区外层的同名文件属于历史设计稿。
+默认三轮情景题，也支持一次答完。每题覆盖不同偏好，八种人格都有明确计分依据；支持改答、跳题、打平认领和重测。结果卡引用真实答案，附专属宣言、娱乐搭配和积分建议。可继续生成分享文案或搭子互动，全程不自动查询账户或抽奖。
 
-开发复盘见 [`开发分享帖.md`](./开发分享帖.md)。
+开发过程记录见 [`workbuddy.md`](./workbuddy.md)。
