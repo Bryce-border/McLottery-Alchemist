@@ -39,6 +39,7 @@ McLottery Alchemist 用三层结构回答这些问题：
 - **抽奖守卫**：意图 → 明确授权 → 单次执行 → 未知状态冻结 → 对账解除，台账落盘、可审计。
 - **MCti 人格 / 娱乐运势**：八种吃堡人格与今日签文，纯娱乐，且明确「不影响中奖概率」。
 - **中奖追踪**：只展示接口返回的状态与提醒文案，不补期限。
+- **离线 Demo**：单文件可视化体验页（人格测试 / 积分账本 / 抽奖模拟 / 安全守则），不联网、不扣分、不需要 Token。
 
 ## 安装方法
 
@@ -80,6 +81,29 @@ python run.py --help          # Python 3.10+，零第三方依赖
 ```bash
 pip install -e .              # 之后可直接用 mclottery 命令
 ```
+
+## 在线体验（离线 Demo）
+
+不想先配 Token、也不想读代码？直接打开随 Skill 附带的单文件演示页：
+
+```text
+skills/mclottery-alchemist/assets/demo.html
+```
+
+双击用浏览器打开即可（也可以交给 WorkBuddy 直接预览页面）。**单文件、零依赖、不联网、不调用 MCP、不需要 MCP Token。**
+
+页面包含五个板块：
+
+| 板块 | 能体验什么 |
+|---|---|
+| 今日补给站 | 今日麦签、运势卡与入口导航，感受交互节奏 |
+| MCti 吃堡人格 | 完整人格测试：情景题 → 计分 → 人格卡 → 分享文案 |
+| 积分小账本 | 到期盘点、可兑换项筛选、A/B/C 方案长什么样 |
+| 抽奖模拟器 | 「说明成本 → 确认 → 单次执行 → 结果」的完整流程演示 |
+| 安全小守则 | 授权、未知状态、重复扣分这些红线是怎么被拦下的 |
+
+> **数据口径**：页面里的余额（20.5）、单次消耗（24）、奖品、概率、中奖结果全部是**离线模拟值**，只用来说明流程，不是你的真实账户数据，也不会扣任何积分。
+> 真实能力请在对话里用：「我积分多少」「现在有什么抽奖」「积分快过期了怎么办」。
 
 ## 使用示例
 
@@ -161,9 +185,11 @@ WorkBuddy Agent ── 加载 ──▶ skills/mclottery-alchemist/SKILL.md
  │
  ├── 只读查询 ──▶ mcd-mcp（query-my-account / query-lottery-info / ...）
  │
- └── 需要算数 ──▶ python run.py <cmd> ──▶ src/mclottery（纯函数，无网络）
-                                    │
-                                    └── guard：ledger.jsonl（授权 / 执行 / 对账）
+ ├── 需要算数 ──▶ python run.py <cmd> ──▶ src/mclottery（纯函数，无网络）
+ │                                    │
+ │                                    └── guard：ledger.jsonl（授权 / 执行 / 对账）
+ │
+ └── 想先体验 ──▶ assets/demo.html（单文件离线演示，不联网、不扣分）
 ```
 
 ## 目录结构
@@ -179,8 +205,9 @@ WorkBuddy Agent ── 加载 ──▶ skills/mclottery-alchemist/SKILL.md
 ├── pyproject.toml
 ├── skills/mclottery-alchemist/
 │   ├── SKILL.md
+│   ├── assets/demo.html          # 单文件离线演示页（可直接打开体验）
 │   ├── references/{tool-workflows,points-calculation,mcti-personalities}.md
-│   └── tests/{intent-routing,safety-cases,regression-cases}.md
+│   └── tests/{intent-routing,mcti-experience,safety-cases,regression-cases}.md
 ├── src/mclottery/
 │   ├── models.py   expiry.py   value.py
 │   ├── lottery.py  guard.py    plan.py   cli.py
@@ -220,3 +247,5 @@ MIT
 ## MCti 互动体验
 
 默认三轮情景题，也支持一次答完。每题覆盖不同偏好，八种人格都有明确计分依据；支持改答、跳题、打平认领和重测。结果卡引用真实答案，附专属宣言、娱乐搭配和积分建议。可继续生成分享文案或搭子互动，全程不自动查询账户或抽奖。正式 Skill 入口是 `skills/mclottery-alchemist/SKILL.md`；工作区外层的同名文件属于历史设计稿。
+
+开发复盘见 [`开发分享帖.md`](./开发分享帖.md)。

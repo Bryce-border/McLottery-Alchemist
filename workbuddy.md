@@ -61,6 +61,23 @@
 references、三篇测试用例文档、`README.md`（四要素齐全）、`MCP_INTEGRATION.md`、
 `mcp-config.example.json`（仅占位符）、本文件。
 
+## 第 5 轮：融合可视化 Demo（2026-10-21）
+
+> **用户**：把这个 demo html 融合进 skill 里，使用 skill 时可以让用户打开来体验，另外补充对应的 workbuddy.md、readme.md。
+
+**WorkBuddy 动作**：
+
+1. 先核查 Demo 是否可安全内嵌：`grep` 确认**零外部请求**（无 `http(s)://` 资源、无外链 `<link>/<img>`）、单个内联 `<script>`、五个视图（home / mcti / points / lottery / safety），页内已有「离线演示模式」「演示」「模拟」「虚构」等标注。
+2. 规整位置：`mclottery-alchemist-demo.html` → `skills/mclottery-alchemist/assets/demo.html`，让 Skill 目录自包含、可整体复制安装；避免仓库根与 Skill 内各留一份导致版本漂移。
+3. 在 `SKILL.md` 增加能力项、路由行与 **§9 演示页（离线 Demo）**：打开时机、打开方式、页面结构、数据口径（20.5 / 24 / 奖品 / 概率全为模拟）、演示后必须补「要看真实数据我帮你查」、禁止把演示结果当事实、用户说不用看页面就直接答。自检清单加一条「Demo 数字是否标明模拟」。原 §9–§11 顺延为 §10–§12。
+4. 更新 `README.md`：核心能力新增「离线 Demo」，新增「在线体验（离线 Demo）」章节（打开方式、五个板块表、数据口径），目录结构补 `assets/demo.html`，架构图补演示分支。
+5. 回归：`python -m unittest discover -s tests` → **75 tests, OK**（本轮只动文档与静态资源，未触碰计算层）。
+
+## 第 6 轮：跨会话迭代说明
+
+2026-10-20 的 `07cbb1a`（MCti 体验与运行可靠性）不产生于本文档记录的会话，故不在此复述细节；
+本文档只记录本会话实际参与的轮次，避免把他人/其他会话的工作写成本次产出。
+
 ## 关键决策
 
 | 决策 | 理由 |
@@ -71,6 +88,8 @@ references、三篇测试用例文档、`README.md`（四要素齐全）、`MCP_
 | 抽奖守卫用事件溯源 JSONL | `draw-lottery` 无幂等键，只能靠台账 + 冻结/对账做客户端保护 |
 | 期望价值默认锁死 | 接口无概率字段，出数字即造假 |
 | 文案去掉「赛博玄学/改运」表述 | 活动规则禁止宣扬迷信与赌博，保留趣味但删除暗示 |
+| Demo 放进 `skills/.../assets/` 而不是仓库根 | Skill 需自包含、可整目录复制；单份文件避免两处版本漂移 |
+| Demo 只做体验入口，不接 MCP | 演示页若调真实接口，会把「离线可分享」变成「必须带 Token 才能看」 |
 | 未执行真实抽奖 | 当时余额 20.5 < 单次 24，真实调用会失败；改用契约文档 + 模拟返回验证 |
 
 ## 产物清单
@@ -78,9 +97,9 @@ references、三篇测试用例文档、`README.md`（四要素齐全）、`MCP_
 ```text
 README.md  CONTEST_DECLARATION.md  MCP_INTEGRATION.md  mcp-config.example.json  workbuddy.md
 run.py  pyproject.toml  LICENSE  .gitignore
-skills/mclottery-alchemist/{SKILL.md, references/*.md, tests/*.md}
+skills/mclottery-alchemist/{SKILL.md, assets/demo.html, references/*.md, tests/*.md}
 src/mclottery/{models,expiry,value,lottery,guard,plan,cli}.py
-tests/{test_expiry,test_value,test_lottery,test_guard,test_plan,test_cli}.py + fixtures/
+tests/{test_expiry,test_value,test_lottery,test_guard,test_plan,test_cli,test_prizes}.py + fixtures/
 ```
 
 ## 下一步（留给后续迭代）
